@@ -19,6 +19,7 @@ DJANGO_SECRET_KEY=replace-me
 DJANGO_DEBUG=true
 DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
 TELEGRAM_BOT_TOKEN=replace-me
+ALLOWED_TELEGRAM_CHAT_IDS=123456789
 ```
 
 ## 현재 범위
@@ -34,3 +35,5 @@ uv run python manage.py run_telegram_bot
 - `/start`
 - `/help`
 - `/ping`
+
+`ALLOWED_TELEGRAM_CHAT_IDS`에 없는 사용자는 모든 명령어가 차단됩니다.

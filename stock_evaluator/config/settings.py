@@ -67,3 +67,8 @@ STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+ALLOWED_TELEGRAM_CHAT_IDS = [
+    int(chat_id.strip())
+    for chat_id in os.environ.get("ALLOWED_TELEGRAM_CHAT_IDS", "").split(",")
+    if chat_id.strip()
+]
