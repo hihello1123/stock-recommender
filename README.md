@@ -43,16 +43,17 @@ uv run python manage.py migrate
 
 ## 환경변수 설정
 
-코드는 `.env`를 자동으로 읽지 않습니다. 실행 전에 환경변수를 셸에 넣어야 합니다.
+코드는 저장소 루트의 `.env`를 자동으로 읽습니다. 셸에 직접 `export`할 필요는 없습니다.
+셸 환경변수가 이미 설정돼 있으면 그 값이 `.env`보다 우선합니다.
 
-`.env.example`을 참고해서 값을 채우세요.
+`.env.example`을 참고해서 `.env`를 만들고 값을 채우세요.
 
 ```bash
-export DJANGO_SECRET_KEY=replace-me
-export DJANGO_DEBUG=true
-export DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
-export TELEGRAM_BOT_TOKEN=replace-me
-export ALLOWED_TELEGRAM_CHAT_IDS=123456789
+DJANGO_SECRET_KEY=replace-me
+DJANGO_DEBUG=true
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+TELEGRAM_BOT_TOKEN=replace-me
+ALLOWED_TELEGRAM_CHAT_IDS=123456789
 ```
 
 `ALLOWED_TELEGRAM_CHAT_IDS`는 쉼표로 여러 개를 넣을 수 있습니다.
@@ -70,6 +71,77 @@ uv run python manage.py test
 
 ```bash
 uv run python manage.py run_telegram_bot
+```
+
+## macOS 백그라운드 실행
+
+`launchd`를 쓰면 로그인 후 자동으로 봇을 올리고, 재시작도 관리할 수 있습니다.
+
+### 1. 실행 스크립트 만들기
+
+`scripts/run_bot.sh`
+
+```bash
+#!/bin/zsh
+cd /path/to/stock-recommander
+
+exec "$(command -v uv)" run python manage.py run_telegram_bot
+```
+
+```bash
+chmod +x /path/to/stock-recommander/scripts/run_bot.sh
+```
+
+### 2. LaunchAgent 등록
+
+`~/Library/LaunchAgents/com.george.stockrecommender.bot.plist`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.george.stockrecommender.bot</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>/path/to/stock-recommander/scripts/run_bot.sh</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>WorkingDirectory</key>
+    <string>/path/to/stock-recommander</string>
+    <key>StandardOutPath</key>
+    <string>/path/to/stock-recommander/bot.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/path/to/stock-recommander/bot.err.log</string>
+  </dict>
+</plist>
+```
+
+### 3. 시작
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.george.stockrecommender.bot.plist
+launchctl enable gui/$(id -u)/com.george.stockrecommender.bot
+launchctl kickstart -k gui/$(id -u)/com.george.stockrecommender.bot
+```
+
+### 4. 상태 확인
+
+```bash
+launchctl print gui/$(id -u)/com.george.stockrecommender.bot
+tail -f /path/to/stock-recommander/bot.out.log
+tail -f /path/to/stock-recommander/bot.err.log
+```
+
+### 5. 중지
+
+```bash
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.george.stockrecommender.bot.plist
 ```
 
 ## Telegram 명령어

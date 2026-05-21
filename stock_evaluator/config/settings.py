@@ -4,6 +4,37 @@ import os
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
+
+def _load_env_file(path: Path) -> None:
+    path = Path(path)
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line.removeprefix("export ").strip()
+        if "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            continue
+        if (
+            len(value) >= 2
+            and value[0] == value[-1]
+            and value[0] in {'"', "'"}
+        ):
+            value = value[1:-1]
+        os.environ.setdefault(key, value)
+
+
+_load_env_file(BASE_DIR / ".env")
+
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "development-only-secret-key")
 DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
 ALLOWED_HOSTS = [
