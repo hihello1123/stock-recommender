@@ -13,5 +13,6 @@ def help_message() -> str:
             "/start - 봇 소개",
             "/help - 도움말",
             "/ping - 연결 확인",
+            "/company TICKER - 회사 기본 평가",
         ]
     )

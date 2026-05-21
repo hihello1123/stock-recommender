@@ -1,11 +1,22 @@
 import asyncio
+from datetime import date
+from decimal import Decimal
+from unittest.mock import Mock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from telegram.constants import ChatType
 
+from stock_evaluator.companies.models import Company, FinancialSnapshot, LensScore
+from stock_evaluator.companies.services.company_lookup import CompanyLookupResult
 from stock_evaluator.telegram_bot.auth import ACCESS_DENIED_MESSAGE, is_allowed_chat
 from stock_evaluator.telegram_bot.bot import TelegramBotConfigError, build_application
-from stock_evaluator.telegram_bot.handlers import help_command, ping, start
+from stock_evaluator.telegram_bot.handlers import (
+    _company_report_message,
+    company,
+    help_command,
+    ping,
+    start,
+)
 from stock_evaluator.telegram_bot.messages import help_message, start_message
 
 
@@ -29,6 +40,11 @@ class FakeUpdate:
         self.effective_chat = FakeChat(chat_id, chat_type)
 
 
+class FakeContext:
+    def __init__(self, args=None):
+        self.args = args or []
+
+
 class TelegramMessageTests(SimpleTestCase):
     def test_start_message_mentions_help(self):
         self.assertIn("/help", start_message())
@@ -39,6 +55,7 @@ class TelegramMessageTests(SimpleTestCase):
         self.assertIn("/start", message)
         self.assertIn("/help", message)
         self.assertIn("/ping", message)
+        self.assertIn("/company", message)
 
 
 @override_settings(ALLOWED_TELEGRAM_CHAT_IDS=[123456789])
@@ -106,4 +123,76 @@ class TelegramApplicationTests(SimpleTestCase):
             for command in getattr(handler, "commands", set())
         }
 
-        self.assertSetEqual(command_names, {"start", "help", "ping"})
+        self.assertSetEqual(command_names, {"start", "help", "ping", "company"})
+
+
+@override_settings(ALLOWED_TELEGRAM_CHAT_IDS=[123456789])
+class CompanyCommandTests(TestCase):
+    def test_company_success_replies_with_report(self):
+        with patch(
+            "stock_evaluator.telegram_bot.handlers._company_report_message",
+            return_value="[AAPL / Apple Inc.]",
+        ):
+            update = FakeUpdate()
+            asyncio.run(company(update, FakeContext(args=["AAPL"])))
+
+        self.assertEqual(update.effective_message.replies, ["[AAPL / Apple Inc.]"])
+
+    def test_company_missing_ticker_replies_with_safe_error(self):
+        update = FakeUpdate()
+
+        asyncio.run(company(update, FakeContext(args=[])))
+
+        self.assertEqual(update.effective_message.replies, ["티커를 입력해주세요. 예: /company AAPL"])
+
+
+class CompanyReportMessageTests(TestCase):
+    def test_company_report_message_saves_data_and_score(self):
+        lookup_result = CompanyLookupResult(
+            company=Company(
+                ticker="AAPL",
+                name="Apple Inc.",
+                exchange="NASDAQ",
+                sector="Technology",
+                industry="Consumer Electronics",
+                country="United States",
+                instrument_type=Company.InstrumentType.COMMON_STOCK,
+            ),
+            snapshot_values={
+                "source": "yfinance",
+                "source_url": "https://finance.yahoo.com/quote/AAPL",
+                "as_of_date": date(2026, 5, 21),
+                "period_end_date": None,
+                "period_type": FinancialSnapshot.PeriodType.UNKNOWN,
+                "currency": "USD",
+                "price": Decimal("190.12"),
+                "market_cap": Decimal("3000000000000"),
+                "per": Decimal("24"),
+                "pbr": Decimal("40"),
+                "psr": Decimal("7"),
+                "roe": Decimal("0.20"),
+                "roic": Decimal("0.15"),
+                "revenue": Decimal("383285000000"),
+                "operating_income": Decimal("114301000000"),
+                "net_income": Decimal("96995000000"),
+                "eps": Decimal("6.16"),
+                "operating_cash_flow": Decimal("110543000000"),
+                "free_cash_flow": Decimal("99584000000"),
+                "total_debt": Decimal("50000000000"),
+                "cash": Decimal("60000000000"),
+                "missing_fields": [],
+                "raw_payload": {},
+            },
+        )
+        service = Mock()
+        service.lookup.return_value = lookup_result
+
+        with patch("stock_evaluator.telegram_bot.handlers.CompanyLookupService", return_value=service):
+            message = _company_report_message("AAPL")
+
+        self.assertIn("[AAPL / Apple Inc.]", message)
+        self.assertIn("Quality Lens v1", message)
+        self.assertNotIn("매수 추천", message)
+        self.assertEqual(Company.objects.count(), 1)
+        self.assertEqual(FinancialSnapshot.objects.count(), 1)
+        self.assertEqual(LensScore.objects.count(), 1)
