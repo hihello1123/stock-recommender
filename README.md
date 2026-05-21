@@ -18,8 +18,19 @@ uv run python manage.py test
 DJANGO_SECRET_KEY=replace-me
 DJANGO_DEBUG=true
 DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+TELEGRAM_BOT_TOKEN=replace-me
 ```
 
 ## 현재 범위
 
-1단계 목표는 Django 프로젝트 골격을 만들고 기본 검증 명령이 통과하는 것입니다.
+현재 구현된 범위는 Django 프로젝트 골격과 텔레그램 기본 명령어입니다.
+
+```bash
+uv run python manage.py run_telegram_bot
+```
+
+지원 명령어:
+
+- `/start`
+- `/help`
+- `/ping`
