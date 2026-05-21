@@ -19,7 +19,9 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "stock_evaluator.companies",
     "stock_evaluator.telegram_bot",
+    "stock_evaluator.users",
 ]
 
 MIDDLEWARE = [
