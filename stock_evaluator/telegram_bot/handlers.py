@@ -97,7 +97,13 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await query.edit_message_text(message)
                 return
             investor, ticker = values
+            await query.edit_message_text(_loading_message(ticker, investor))
             message = await sync_to_async(_company_report_message)(ticker, investor)
+            if query.message:
+                await query.message.reply_text(message)
+            else:
+                await query.edit_message_text(message)
+            return
         elif action == "watch_add":
             ticker = values[0] if values else ""
             message = await sync_to_async(_watch_message)(
@@ -227,6 +233,17 @@ def _company_confirmation_message(company, *, action: str) -> str:
         lines.append(f"국가: {company.country}")
     lines.append("아니면 다른 티커로 다시 명령을 보내주세요.")
     return "\n".join(lines)
+
+
+def _loading_message(ticker: str, investor: str) -> str:
+    investor_label = INVESTOR_LABELS.get(investor, investor)
+    return "\n".join(
+        [
+            f"{ticker} / {investor_label} 관점 분석을 준비하고 있습니다.",
+            "자료 조사중...",
+            "완료되면 새 메시지로 리포트를 보내드릴게요.",
+        ]
+    )
 
 
 def _parse_callback_data(data: str) -> tuple[str, list[str]]:
