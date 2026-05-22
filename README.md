@@ -102,7 +102,17 @@ launchctl print gui/$(id -u)/com.george.stockrecommender.bot
 tail -f logs/bot.out.log logs/bot.err.log
 ```
 
-### 3. 중지 및 제거
+### 3. 코드 변경 후 재시작
+
+로컬에서 코드만 바꿔 쓰는 경우에는 원격에서 받을 내용이 없으므로 `git pull`은 필요 없습니다.
+
+```bash
+./scripts/restart_bot.sh
+```
+
+이 스크립트는 `uv sync`, `migrate`, `launchd` 재시작을 순서대로 실행합니다.
+
+### 4. 중지 및 제거
 
 ```bash
 ./scripts/uninstall_launch_agent.sh
