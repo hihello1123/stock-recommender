@@ -16,6 +16,9 @@
 - `/help`
 - `/ping`
 - `/company AAPL`
+- `/watch AAPL`
+- `/unwatch AAPL`
+- `/watchlist`
 
 `/company`는 다음을 보여줍니다.
 
@@ -26,6 +29,8 @@
 - `Quality Lens v1` 점수
 - 평가 신뢰도
 - 추가 확인사항
+
+관심종목 명령어는 나중에 일일 뉴스 리포트와 주간 리포트의 대상 목록으로 사용합니다.
 
 ## 준비물
 
@@ -128,6 +133,26 @@ tail -f logs/bot.out.log logs/bot.err.log
 /company MSFT
 /company O
 ```
+
+### `/watch TICKER`
+
+관심종목에 회사를 추가합니다. 추가할 때 회사 기본 정보를 조회해 DB에 저장합니다.
+
+```text
+/watch AAPL
+```
+
+### `/unwatch TICKER`
+
+관심종목에서 회사를 제거합니다.
+
+```text
+/unwatch AAPL
+```
+
+### `/watchlist`
+
+현재 관심종목 목록을 보여줍니다.
 
 `ALLOWED_TELEGRAM_CHAT_IDS`에 없는 사용자는 모든 명령이 차단됩니다. 그룹 채팅도 차단됩니다.
 

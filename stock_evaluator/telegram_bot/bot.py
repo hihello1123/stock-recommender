@@ -18,4 +18,7 @@ def build_application(token: str | None = None) -> Application:
     application.add_handler(CommandHandler("help", handlers.help_command))
     application.add_handler(CommandHandler("ping", handlers.ping))
     application.add_handler(CommandHandler("company", handlers.company))
+    application.add_handler(CommandHandler("watch", handlers.watch))
+    application.add_handler(CommandHandler("unwatch", handlers.unwatch))
+    application.add_handler(CommandHandler("watchlist", handlers.watchlist))
     return application

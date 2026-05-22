@@ -12,6 +12,9 @@ from stock_evaluator.telegram_bot.auth import ACCESS_DENIED_MESSAGE, is_allowed_
 from stock_evaluator.telegram_bot.bot import TelegramBotConfigError, build_application
 from stock_evaluator.telegram_bot.handlers import (
     _company_report_message,
+    _unwatch_message,
+    _watch_message,
+    _watchlist_message,
     company,
     help_command,
     ping,
@@ -34,10 +37,16 @@ class FakeChat:
         self.type = chat_type
 
 
+class FakeUser:
+    def __init__(self, username: str = "george"):
+        self.username = username
+
+
 class FakeUpdate:
     def __init__(self, chat_id: int = 123456789, chat_type: str = ChatType.PRIVATE):
         self.effective_message = FakeMessage()
         self.effective_chat = FakeChat(chat_id, chat_type)
+        self.effective_user = FakeUser()
 
 
 class FakeContext:
@@ -56,6 +65,9 @@ class TelegramMessageTests(SimpleTestCase):
         self.assertIn("/help", message)
         self.assertIn("/ping", message)
         self.assertIn("/company", message)
+        self.assertIn("/watch", message)
+        self.assertIn("/unwatch", message)
+        self.assertIn("/watchlist", message)
 
 
 @override_settings(ALLOWED_TELEGRAM_CHAT_IDS=[123456789])
@@ -123,7 +135,10 @@ class TelegramApplicationTests(SimpleTestCase):
             for command in getattr(handler, "commands", set())
         }
 
-        self.assertSetEqual(command_names, {"start", "help", "ping", "company"})
+        self.assertSetEqual(
+            command_names,
+            {"start", "help", "ping", "company", "watch", "unwatch", "watchlist"},
+        )
 
 
 @override_settings(ALLOWED_TELEGRAM_CHAT_IDS=[123456789])
@@ -196,3 +211,51 @@ class CompanyReportMessageTests(TestCase):
         self.assertEqual(Company.objects.count(), 1)
         self.assertEqual(FinancialSnapshot.objects.count(), 1)
         self.assertEqual(LensScore.objects.count(), 1)
+
+
+class WatchlistMessageTests(TestCase):
+    def test_watch_adds_company_to_watchlist(self):
+        lookup_result = CompanyLookupResult(
+            company=Company(ticker="AAPL", name="Apple Inc.", exchange="NASDAQ"),
+            snapshot_values={
+                "source": "yfinance",
+                "source_url": "https://finance.yahoo.com/quote/AAPL",
+                "as_of_date": date(2026, 5, 21),
+                "period_end_date": None,
+                "period_type": FinancialSnapshot.PeriodType.UNKNOWN,
+                "currency": "USD",
+                "price": Decimal("190.12"),
+                "market_cap": None,
+                "per": None,
+                "pbr": None,
+                "psr": None,
+                "roe": None,
+                "roic": None,
+                "revenue": None,
+                "operating_income": None,
+                "net_income": None,
+                "eps": None,
+                "operating_cash_flow": None,
+                "free_cash_flow": None,
+                "total_debt": None,
+                "cash": None,
+                "missing_fields": ["roic"],
+                "raw_payload": {},
+            },
+        )
+        service = Mock()
+        service.lookup.return_value = lookup_result
+
+        with patch("stock_evaluator.users.services.CompanyLookupService", return_value=service):
+            message = _watch_message(123456789, "aapl", "george")
+
+        self.assertEqual(message, "AAPL 관심종목에 추가했습니다.")
+        self.assertIn("AAPL / Apple Inc.", _watchlist_message(123456789))
+
+    def test_unwatch_removes_company_from_watchlist(self):
+        self.test_watch_adds_company_to_watchlist()
+
+        message = _unwatch_message(123456789, "AAPL")
+
+        self.assertEqual(message, "AAPL 관심종목에서 제거했습니다.")
+        self.assertEqual(_watchlist_message(123456789), "관심종목이 없습니다. /watch AAPL 형식으로 추가하세요.")

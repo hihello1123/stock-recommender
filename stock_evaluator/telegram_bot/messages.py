@@ -14,5 +14,8 @@ def help_message() -> str:
             "/help - 도움말",
             "/ping - 연결 확인",
             "/company TICKER - 회사 기본 평가",
+            "/watch TICKER - 관심종목 추가",
+            "/unwatch TICKER - 관심종목 제거",
+            "/watchlist - 관심종목 목록",
         ]
     )
