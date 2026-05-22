@@ -57,9 +57,13 @@ DJANGO_SECRET_KEY=replace-me
 DJANGO_DEBUG=true
 DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
 TELEGRAM_BOT_TOKEN=replace-me
+LOCAL_LLM_MODEL=
+LOCAL_LLM_BASE_URL=http://127.0.0.1:11434
+LOCAL_LLM_TIMEOUT_SECONDS=60
 ```
 
 봇 토큰은 서버에서만 사용합니다. 텔레그램 사용자에게 공유하지 않습니다.
+`LOCAL_LLM_MODEL`을 비워두면 대가별 LLM 해석은 생략됩니다. Ollama를 쓴다면 예를 들어 `LOCAL_LLM_MODEL=qwen3.6:27b`처럼 로컬에 설치된 모델명을 넣습니다.
 
 ## 실행
 
@@ -187,7 +191,28 @@ Quality Lens v1
 주의
 - ROIC 데이터가 없습니다.
 
-해석
+대가별 해석
+[Buffett]
+- 좋은 점: ...
+- 아쉬운 점: ...
+- 확인할 것: ...
+
+[Graham]
+- 좋은 점: ...
+- 아쉬운 점: ...
+- 확인할 것: ...
+
+[Peter Lynch]
+- 좋은 점: ...
+- 아쉬운 점: ...
+- 확인할 것: ...
+
+[Munger]
+- 좋은 점: ...
+- 아쉬운 점: ...
+- 확인할 것: ...
+
+주의
 이 결과는 자동 매수 신호가 아닙니다.
 가격, 최근 실적, 업종 리스크를 직접 확인해야 합니다.
 ```
@@ -202,6 +227,7 @@ Quality Lens v1
 - 데이터 정규화
 - 업종/상품 유형 분류
 - `Quality Lens v1`
+- 로컬 LLM 기반 대가별 해석
 - `/company` 결과 렌더링
 
 ## 데이터 소스
@@ -219,7 +245,7 @@ Quality Lens v1
 ## 개발 메모
 
 - 점수는 코드가 계산합니다.
-- 설명은 템플릿 기준으로 제한합니다.
+- 설명은 로컬 LLM이 생성하되, 점수 계산은 코드 결과만 사용합니다.
 - 일반 품질 점수를 쓰기 어려운 업종은 낮은 신뢰도로 처리합니다.
 - 실제 주문 기능은 아직 넣지 않습니다.
 
@@ -245,7 +271,6 @@ uv run python manage.py test
 1. `/watch`, `/unwatch`, `/watchlist`
 2. 렌즈 확장
 3. 주간 리포트
-4. LLM 설명
-5. 모의투자
+4. 모의투자
 
 실제 주문과 계좌 조회는 별도 판단이 필요합니다.

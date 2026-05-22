@@ -10,6 +10,10 @@ from stock_evaluator.companies.services.company_lookup import (
 )
 from stock_evaluator.companies.services.market_data_client import MarketDataError
 from stock_evaluator.lenses.quality_v1 import QualityLensV1
+from stock_evaluator.reports.llm_explainer import (
+    LocalLLMExplanationError,
+    generate_investor_explanation,
+)
 from stock_evaluator.reports.telegram_renderer import render_company_report, render_error_message
 from stock_evaluator.telegram_bot.auth import is_allowed_chat, require_allowed_chat
 from stock_evaluator.telegram_bot.messages import help_message, start_message
@@ -146,7 +150,19 @@ def _company_report_message(ticker: str) -> str:
                 "required_extra_checks": score_result.required_extra_checks,
             },
         )
-    return render_company_report(saved_company, snapshot, score_result)
+    try:
+        explanation = generate_investor_explanation(saved_company, snapshot, score_result)
+    except LocalLLMExplanationError:
+        explanation = "로컬 LLM 설명 생성에 실패했습니다. 로컬 모델 서버 상태를 확인해주세요."
+    try:
+        return render_company_report(saved_company, snapshot, score_result, explanation=explanation)
+    except ValueError:
+        return render_company_report(
+            saved_company,
+            snapshot,
+            score_result,
+            explanation="로컬 LLM 설명에 제한된 투자 조언 표현이 포함되어 생략했습니다.",
+        )
 
 
 def _company_preview_response(ticker: str) -> tuple[str, InlineKeyboardMarkup]:
