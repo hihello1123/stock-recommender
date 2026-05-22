@@ -37,7 +37,6 @@
 - Python 3.11 이상
 - `uv`
 - Telegram Bot Token
-- 허용할 Telegram `chat_id` 목록
 
 ## 설치
 
@@ -58,10 +57,9 @@ DJANGO_SECRET_KEY=replace-me
 DJANGO_DEBUG=true
 DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
 TELEGRAM_BOT_TOKEN=replace-me
-ALLOWED_TELEGRAM_CHAT_IDS=123456789
 ```
 
-`ALLOWED_TELEGRAM_CHAT_IDS`는 쉼표로 여러 개를 넣을 수 있습니다.
+봇 토큰은 서버에서만 사용합니다. 텔레그램 사용자에게 공유하지 않습니다.
 
 ## 실행
 
@@ -164,7 +162,7 @@ tail -f logs/bot.out.log logs/bot.err.log
 
 현재 관심종목 목록을 보여줍니다.
 
-`ALLOWED_TELEGRAM_CHAT_IDS`에 없는 사용자는 모든 명령이 차단됩니다. 그룹 채팅도 차단됩니다.
+개인 채팅에서는 누구나 사용할 수 있습니다. 그룹 채팅은 차단됩니다.
 
 ## 응답 예시
 

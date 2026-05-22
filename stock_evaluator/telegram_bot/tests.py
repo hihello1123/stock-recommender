@@ -12,6 +12,7 @@ from stock_evaluator.telegram_bot.auth import ACCESS_DENIED_MESSAGE, is_allowed_
 from stock_evaluator.telegram_bot.bot import TelegramBotConfigError, build_application
 from stock_evaluator.telegram_bot.handlers import (
     _company_report_message,
+    _remember_user,
     _unwatch_message,
     _watch_message,
     _watchlist_message,
@@ -21,6 +22,7 @@ from stock_evaluator.telegram_bot.handlers import (
     start,
 )
 from stock_evaluator.telegram_bot.messages import help_message, start_message
+from stock_evaluator.users.models import TelegramUser
 
 
 class FakeMessage:
@@ -70,47 +72,38 @@ class TelegramMessageTests(SimpleTestCase):
         self.assertIn("/watchlist", message)
 
 
-@override_settings(ALLOWED_TELEGRAM_CHAT_IDS=[123456789])
 class TelegramAuthTests(SimpleTestCase):
-    def test_allowed_private_chat_passes(self):
+    def test_private_chat_passes(self):
         self.assertTrue(is_allowed_chat(FakeUpdate()))
-
-    def test_denied_chat_id_fails(self):
-        self.assertFalse(is_allowed_chat(FakeUpdate(chat_id=999)))
 
     def test_group_chat_fails(self):
         self.assertFalse(is_allowed_chat(FakeUpdate(chat_type=ChatType.GROUP)))
 
 
-@override_settings(ALLOWED_TELEGRAM_CHAT_IDS=[123456789])
-class TelegramHandlerTests(SimpleTestCase):
+class TelegramHandlerTests(TestCase):
     def test_ping_replies_pong(self):
         update = FakeUpdate()
 
-        asyncio.run(ping(update, None))
+        with patch("stock_evaluator.telegram_bot.handlers._remember_user"):
+            asyncio.run(ping(update, None))
 
         self.assertEqual(update.effective_message.replies, ["pong"])
 
     def test_start_replies_with_start_message(self):
         update = FakeUpdate()
 
-        asyncio.run(start(update, None))
+        with patch("stock_evaluator.telegram_bot.handlers._remember_user"):
+            asyncio.run(start(update, None))
 
         self.assertEqual(update.effective_message.replies, [start_message()])
 
     def test_help_replies_with_help_message(self):
         update = FakeUpdate()
 
-        asyncio.run(help_command(update, None))
+        with patch("stock_evaluator.telegram_bot.handlers._remember_user"):
+            asyncio.run(help_command(update, None))
 
         self.assertEqual(update.effective_message.replies, [help_message()])
-
-    def test_denied_chat_gets_access_denied(self):
-        update = FakeUpdate(chat_id=999)
-
-        asyncio.run(ping(update, None))
-
-        self.assertEqual(update.effective_message.replies, [ACCESS_DENIED_MESSAGE])
 
     def test_group_chat_gets_access_denied(self):
         update = FakeUpdate(chat_type=ChatType.GROUP)
@@ -118,6 +111,13 @@ class TelegramHandlerTests(SimpleTestCase):
         asyncio.run(ping(update, None))
 
         self.assertEqual(update.effective_message.replies, [ACCESS_DENIED_MESSAGE])
+
+    def test_remember_user_saves_public_user(self):
+        _remember_user(123456789, "george")
+
+        user = TelegramUser.objects.get(chat_id=123456789)
+        self.assertEqual(user.username, "george")
+        self.assertTrue(user.is_allowed)
 
 
 class TelegramApplicationTests(SimpleTestCase):
@@ -141,10 +141,9 @@ class TelegramApplicationTests(SimpleTestCase):
         )
 
 
-@override_settings(ALLOWED_TELEGRAM_CHAT_IDS=[123456789])
 class CompanyCommandTests(TestCase):
     def test_company_success_replies_with_report(self):
-        with patch(
+        with patch("stock_evaluator.telegram_bot.handlers._remember_user"), patch(
             "stock_evaluator.telegram_bot.handlers._company_report_message",
             return_value="[AAPL / Apple Inc.]",
         ):

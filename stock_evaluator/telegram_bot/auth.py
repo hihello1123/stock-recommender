@@ -1,7 +1,6 @@
 from collections.abc import Awaitable, Callable
 from functools import wraps
 
-from django.conf import settings
 from telegram import Update
 from telegram.constants import ChatType
 from telegram.ext import ContextTypes
@@ -14,10 +13,7 @@ Handler = Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[None]]
 
 def is_allowed_chat(update: Update) -> bool:
     chat = update.effective_chat
-    if chat is None or chat.type != ChatType.PRIVATE:
-        return False
-
-    return chat.id in settings.ALLOWED_TELEGRAM_CHAT_IDS
+    return chat is not None and chat.type == ChatType.PRIVATE
 
 
 def require_allowed_chat(handler: Handler) -> Handler:

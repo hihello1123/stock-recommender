@@ -13,12 +13,18 @@ from stock_evaluator.lenses.quality_v1 import QualityLensV1
 from stock_evaluator.reports.telegram_renderer import render_company_report, render_error_message
 from stock_evaluator.telegram_bot.auth import require_allowed_chat
 from stock_evaluator.telegram_bot.messages import help_message, start_message
-from stock_evaluator.users.services import list_watchlist, unwatch_ticker, watch_ticker
+from stock_evaluator.users.services import (
+    get_or_create_telegram_user,
+    list_watchlist,
+    unwatch_ticker,
+    watch_ticker,
+)
 
 
 @require_allowed_chat
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     del context
+    await sync_to_async(_remember_user)(update.effective_chat.id, _username(update))
     if update.effective_message:
         await update.effective_message.reply_text(start_message())
 
@@ -26,6 +32,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 @require_allowed_chat
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     del context
+    await sync_to_async(_remember_user)(update.effective_chat.id, _username(update))
     if update.effective_message:
         await update.effective_message.reply_text(help_message())
 
@@ -33,6 +40,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 @require_allowed_chat
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     del context
+    await sync_to_async(_remember_user)(update.effective_chat.id, _username(update))
     if update.effective_message:
         await update.effective_message.reply_text("pong")
 
@@ -41,6 +49,7 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def company(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ticker = context.args[0] if context and context.args else ""
     try:
+        await sync_to_async(_remember_user)(update.effective_chat.id, _username(update))
         message = await sync_to_async(_company_report_message)(ticker)
     except (ValueError, MarketDataError) as exc:
         message = render_error_message(user_safe_lookup_error(exc))
@@ -140,3 +149,7 @@ def _watchlist_message(chat_id: int) -> str:
 def _username(update: Update) -> str:
     user = update.effective_user
     return user.username if user and user.username else ""
+
+
+def _remember_user(chat_id: int, username: str = "") -> None:
+    get_or_create_telegram_user(chat_id, username, is_allowed=True)

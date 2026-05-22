@@ -6,10 +6,15 @@ from stock_evaluator.companies.services.market_data_client import normalize_tick
 from stock_evaluator.users.models import TelegramUser, WatchlistItem
 
 
-def get_or_create_telegram_user(chat_id: int, username: str = "") -> TelegramUser:
+def get_or_create_telegram_user(
+    chat_id: int,
+    username: str = "",
+    *,
+    is_allowed: bool = True,
+) -> TelegramUser:
     user, _ = TelegramUser.objects.update_or_create(
         chat_id=chat_id,
-        defaults={"username": username, "is_allowed": True},
+        defaults={"username": username, "is_allowed": is_allowed},
     )
     return user
 
