@@ -76,72 +76,31 @@ uv run python manage.py run_telegram_bot
 ## macOS 백그라운드 실행
 
 `launchd`를 쓰면 로그인 후 자동으로 봇을 올리고, 재시작도 관리할 수 있습니다.
+저장소에는 `launchd` 등록 스크립트가 포함되어 있습니다.
 
-### 1. 실행 스크립트 만들기
+### 1. 설치 및 시작
 
-`scripts/run_bot.sh`
-
-```bash
-#!/bin/zsh
-cd /path/to/stock-recommander
-
-exec "$(command -v uv)" run python manage.py run_telegram_bot
-```
+먼저 `.env`와 DB migration이 준비되어 있어야 합니다.
 
 ```bash
-chmod +x /path/to/stock-recommander/scripts/run_bot.sh
+uv sync
+uv run python manage.py migrate
+./scripts/install_launch_agent.sh
 ```
 
-### 2. LaunchAgent 등록
+이 스크립트는 현재 저장소 경로를 기준으로 `~/Library/LaunchAgents/com.george.stockrecommender.bot.plist`를 생성하고 서비스를 시작합니다.
 
-`~/Library/LaunchAgents/com.george.stockrecommender.bot.plist`
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict>
-    <key>Label</key>
-    <string>com.george.stockrecommender.bot</string>
-    <key>ProgramArguments</key>
-    <array>
-      <string>/path/to/stock-recommander/scripts/run_bot.sh</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>WorkingDirectory</key>
-    <string>/path/to/stock-recommander</string>
-    <key>StandardOutPath</key>
-    <string>/path/to/stock-recommander/bot.out.log</string>
-    <key>StandardErrorPath</key>
-    <string>/path/to/stock-recommander/bot.err.log</string>
-  </dict>
-</plist>
-```
-
-### 3. 시작
-
-```bash
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.george.stockrecommender.bot.plist
-launchctl enable gui/$(id -u)/com.george.stockrecommender.bot
-launchctl kickstart -k gui/$(id -u)/com.george.stockrecommender.bot
-```
-
-### 4. 상태 확인
+### 2. 상태 확인
 
 ```bash
 launchctl print gui/$(id -u)/com.george.stockrecommender.bot
-tail -f /path/to/stock-recommander/bot.out.log
-tail -f /path/to/stock-recommander/bot.err.log
+tail -f logs/bot.out.log logs/bot.err.log
 ```
 
-### 5. 중지
+### 3. 중지 및 제거
 
 ```bash
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.george.stockrecommender.bot.plist
+./scripts/uninstall_launch_agent.sh
 ```
 
 ## Telegram 명령어
