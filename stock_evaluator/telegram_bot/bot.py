@@ -1,5 +1,5 @@
 from django.conf import settings
-from telegram.ext import Application, CommandHandler
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler
 
 from stock_evaluator.telegram_bot import handlers
 
@@ -21,4 +21,5 @@ def build_application(token: str | None = None) -> Application:
     application.add_handler(CommandHandler("watch", handlers.watch))
     application.add_handler(CommandHandler("unwatch", handlers.unwatch))
     application.add_handler(CommandHandler("watchlist", handlers.watchlist))
+    application.add_handler(CallbackQueryHandler(handlers.handle_confirmation))
     return application

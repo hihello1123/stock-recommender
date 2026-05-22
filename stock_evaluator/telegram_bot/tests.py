@@ -28,9 +28,11 @@ from stock_evaluator.users.models import TelegramUser
 class FakeMessage:
     def __init__(self):
         self.replies: list[str] = []
+        self.reply_markups = []
 
-    async def reply_text(self, text: str) -> None:
+    async def reply_text(self, text: str, **kwargs) -> None:
         self.replies.append(text)
+        self.reply_markups.append(kwargs.get("reply_markup"))
 
 
 class FakeChat:
@@ -142,20 +144,22 @@ class TelegramApplicationTests(SimpleTestCase):
 
 
 class CompanyCommandTests(TestCase):
-    def test_company_success_replies_with_report(self):
+    def test_company_replies_with_confirmation_preview(self):
         with patch("stock_evaluator.telegram_bot.handlers._remember_user"), patch(
-            "stock_evaluator.telegram_bot.handlers._company_report_message",
-            return_value="[AAPL / Apple Inc.]",
+            "stock_evaluator.telegram_bot.handlers._company_preview_response",
+            return_value=("이 회사를 찾는 게 맞나요? 상세 평가를 생성할까요?", "keyboard"),
         ):
             update = FakeUpdate()
             asyncio.run(company(update, FakeContext(args=["AAPL"])))
 
-        self.assertEqual(update.effective_message.replies, ["[AAPL / Apple Inc.]"])
+        self.assertEqual(update.effective_message.replies, ["이 회사를 찾는 게 맞나요? 상세 평가를 생성할까요?"])
+        self.assertEqual(update.effective_message.reply_markups, ["keyboard"])
 
     def test_company_missing_ticker_replies_with_safe_error(self):
         update = FakeUpdate()
 
-        asyncio.run(company(update, FakeContext(args=[])))
+        with patch("stock_evaluator.telegram_bot.handlers._remember_user"):
+            asyncio.run(company(update, FakeContext(args=[])))
 
         self.assertEqual(update.effective_message.replies, ["티커를 입력해주세요. 예: /company AAPL"])
 

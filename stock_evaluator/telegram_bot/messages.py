@@ -13,8 +13,8 @@ def help_message() -> str:
             "/start - 봇 소개",
             "/help - 도움말",
             "/ping - 연결 확인",
-            "/company TICKER - 회사 기본 평가",
-            "/watch TICKER - 관심종목 추가",
+            "/company TICKER - 회사 확인 후 기본 평가",
+            "/watch TICKER - 회사 확인 후 관심종목 추가",
             "/unwatch TICKER - 관심종목 제거",
             "/watchlist - 관심종목 목록",
         ]

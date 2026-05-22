@@ -1,5 +1,5 @@
 from asgiref.sync import sync_to_async
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from stock_evaluator.companies.models import LensScore
@@ -11,7 +11,7 @@ from stock_evaluator.companies.services.company_lookup import (
 from stock_evaluator.companies.services.market_data_client import MarketDataError
 from stock_evaluator.lenses.quality_v1 import QualityLensV1
 from stock_evaluator.reports.telegram_renderer import render_company_report, render_error_message
-from stock_evaluator.telegram_bot.auth import require_allowed_chat
+from stock_evaluator.telegram_bot.auth import is_allowed_chat, require_allowed_chat
 from stock_evaluator.telegram_bot.messages import help_message, start_message
 from stock_evaluator.users.services import (
     get_or_create_telegram_user,
@@ -50,28 +50,56 @@ async def company(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ticker = context.args[0] if context and context.args else ""
     try:
         await sync_to_async(_remember_user)(update.effective_chat.id, _username(update))
-        message = await sync_to_async(_company_report_message)(ticker)
+        message, keyboard = await sync_to_async(_company_preview_response)(ticker)
     except (ValueError, MarketDataError) as exc:
         message = render_error_message(user_safe_lookup_error(exc))
+        keyboard = None
 
     if update.effective_message:
-        await update.effective_message.reply_text(message)
+        await update.effective_message.reply_text(message, reply_markup=keyboard)
 
 
 @require_allowed_chat
 async def watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ticker = context.args[0] if context and context.args else ""
     try:
-        message = await sync_to_async(_watch_message)(
-            update.effective_chat.id,
-            ticker,
-            _username(update),
-        )
+        message, keyboard = await sync_to_async(_watch_preview_response)(ticker)
+    except (ValueError, MarketDataError) as exc:
+        message = render_error_message(user_safe_lookup_error(exc))
+        keyboard = None
+
+    if update.effective_message:
+        await update.effective_message.reply_text(message, reply_markup=keyboard)
+
+
+async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    del context
+    query = update.callback_query
+    if query is None:
+        return
+
+    await query.answer()
+
+    if not is_allowed_chat(update):
+        await query.edit_message_text("개인 채팅에서만 사용할 수 있습니다.")
+        return
+
+    action, ticker = _parse_callback_data(query.data or "")
+    try:
+        if action == "company_report":
+            message = await sync_to_async(_company_report_message)(ticker)
+        elif action == "watch_add":
+            message = await sync_to_async(_watch_message)(
+                update.effective_chat.id,
+                ticker,
+                _username(update),
+            )
+        else:
+            message = "알 수 없는 요청입니다. 다시 명령을 보내주세요."
     except (ValueError, MarketDataError) as exc:
         message = render_error_message(user_safe_lookup_error(exc))
 
-    if update.effective_message:
-        await update.effective_message.reply_text(message)
+    await query.edit_message_text(message)
 
 
 @require_allowed_chat
@@ -121,11 +149,59 @@ def _company_report_message(ticker: str) -> str:
     return render_company_report(saved_company, snapshot, score_result)
 
 
+def _company_preview_response(ticker: str) -> tuple[str, InlineKeyboardMarkup]:
+    result = CompanyLookupService().lookup(ticker)
+    message = _company_confirmation_message(
+        result.company,
+        action="상세 평가를 생성할까요?",
+    )
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("맞아요, 리포트 보기", callback_data=f"company_report:{result.company.ticker}")]]
+    )
+    return message, keyboard
+
+
 def _watch_message(chat_id: int, ticker: str, username: str = "") -> str:
     item, created = watch_ticker(chat_id, ticker, username)
     if created:
         return f"{item.company.ticker} 관심종목에 추가했습니다."
     return f"{item.company.ticker} 이미 관심종목에 있습니다."
+
+
+def _watch_preview_response(ticker: str) -> tuple[str, InlineKeyboardMarkup]:
+    result = CompanyLookupService().lookup(ticker)
+    message = _company_confirmation_message(
+        result.company,
+        action="관심종목에 추가할까요?",
+    )
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("맞아요, 추가하기", callback_data=f"watch_add:{result.company.ticker}")]]
+    )
+    return message, keyboard
+
+
+def _company_confirmation_message(company, *, action: str) -> str:
+    lines = [
+        f"이 회사를 찾는 게 맞나요? {action}",
+        f"{company.ticker} / {company.name}",
+    ]
+    if company.exchange:
+        lines.append(f"거래소: {company.exchange}")
+    if company.sector:
+        lines.append(f"섹터: {company.sector}")
+    if company.industry:
+        lines.append(f"산업: {company.industry}")
+    if company.country:
+        lines.append(f"국가: {company.country}")
+    lines.append("아니면 다른 티커로 다시 명령을 보내주세요.")
+    return "\n".join(lines)
+
+
+def _parse_callback_data(data: str) -> tuple[str, str]:
+    action, separator, ticker = data.partition(":")
+    if not separator:
+        return "", ""
+    return action, ticker
 
 
 def _unwatch_message(chat_id: int, ticker: str) -> str:

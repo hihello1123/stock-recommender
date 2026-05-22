@@ -132,7 +132,7 @@ tail -f logs/bot.out.log logs/bot.err.log
 
 ### `/company TICKER`
 
-회사 기본 정보와 품질 점수를 조회합니다.
+회사 기본 정보를 먼저 보여주고, 맞는 회사인지 확인합니다. 확인 버튼을 누르면 품질 점수 리포트를 생성합니다.
 
 예:
 
@@ -144,7 +144,7 @@ tail -f logs/bot.out.log logs/bot.err.log
 
 ### `/watch TICKER`
 
-관심종목에 회사를 추가합니다. 추가할 때 회사 기본 정보를 조회해 DB에 저장합니다.
+회사 기본 정보를 먼저 보여주고, 맞는 회사인지 확인합니다. 확인 버튼을 누르면 관심종목에 추가하고 DB에 저장합니다.
 
 ```text
 /watch AAPL
