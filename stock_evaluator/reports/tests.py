@@ -39,6 +39,8 @@ class TelegramRendererTests(SimpleTestCase):
 
         self.assertIn("[AAPL / Apple Inc.]", message)
         self.assertIn("점수: 90 / 100", message)
+        self.assertIn("- 품질 지표가 매우 강한 편입니다.", message)
+        self.assertIn("- 데이터 완성도가 높아 이 평가의 신뢰도는 높은 편입니다.", message)
         self.assertIn("이 결과는 자동 매수 신호가 아닙니다.", message)
 
     def test_render_low_confidence_report_without_score(self):
@@ -58,6 +60,7 @@ class TelegramRendererTests(SimpleTestCase):
         )
 
         self.assertIn("일반 품질 점수: 제공하지 않음", message)
+        self.assertIn("- 이 종목은 일반 기업 품질 점수로 단정하기 어렵습니다.", message)
         self.assertIn("추가 확인", message)
 
     def test_error_message_rejects_banned_advice_wording(self):
