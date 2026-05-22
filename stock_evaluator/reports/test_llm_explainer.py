@@ -52,13 +52,9 @@ class LocalLLMExplainerPromptTests(SimpleTestCase):
                 confidence=LensScore.Confidence.HIGH,
                 data_completeness=100,
             ),
+            "buffett",
         )
 
         self.assertIn("[Buffett 기준]", prompt)
         self.assertIn("ROE, ROIC, 영업이익률", prompt)
-        self.assertIn("[Graham 기준]", prompt)
-        self.assertIn("안전마진", prompt)
-        self.assertIn("[Peter Lynch 기준]", prompt)
-        self.assertIn("PEG", prompt)
-        self.assertIn("[Munger 기준]", prompt)
-        self.assertIn("가격 결정력", prompt)
+        self.assertNotIn("[Graham 기준]", prompt)

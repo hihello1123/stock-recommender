@@ -11,6 +11,7 @@ from stock_evaluator.companies.services.company_lookup import (
 from stock_evaluator.companies.services.market_data_client import MarketDataError
 from stock_evaluator.lenses.quality_v1 import QualityLensV1
 from stock_evaluator.reports.llm_explainer import (
+    INVESTOR_LABELS,
     LocalLLMExplanationError,
     generate_investor_explanation,
 )
@@ -88,11 +89,17 @@ async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("개인 채팅에서만 사용할 수 있습니다.")
         return
 
-    action, ticker = _parse_callback_data(query.data or "")
+    action, values = _parse_callback_data(query.data or "")
     try:
         if action == "company_report":
-            message = await sync_to_async(_company_report_message)(ticker)
+            if len(values) != 2:
+                message = "알 수 없는 요청입니다. 다시 명령을 보내주세요."
+                await query.edit_message_text(message)
+                return
+            investor, ticker = values
+            message = await sync_to_async(_company_report_message)(ticker, investor)
         elif action == "watch_add":
+            ticker = values[0] if values else ""
             message = await sync_to_async(_watch_message)(
                 update.effective_chat.id,
                 ticker,
@@ -126,7 +133,7 @@ async def watchlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(message)
 
 
-def _company_report_message(ticker: str) -> str:
+def _company_report_message(ticker: str, investor: str = "buffett") -> str:
     result = CompanyLookupService().lookup(ticker)
     saved_company, snapshot = save_company_report_data(result)
     score_result = QualityLensV1().evaluate(
@@ -151,7 +158,7 @@ def _company_report_message(ticker: str) -> str:
             },
         )
     try:
-        explanation = generate_investor_explanation(saved_company, snapshot, score_result)
+        explanation = generate_investor_explanation(saved_company, snapshot, score_result, investor)
     except LocalLLMExplanationError:
         explanation = "로컬 LLM 설명 생성에 실패했습니다. 로컬 모델 서버 상태를 확인해주세요."
     try:
@@ -169,10 +176,19 @@ def _company_preview_response(ticker: str) -> tuple[str, InlineKeyboardMarkup]:
     result = CompanyLookupService().lookup(ticker)
     message = _company_confirmation_message(
         result.company,
-        action="상세 평가를 생성할까요?",
+        action="어떤 관점으로 분석할까요?",
     )
     keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("맞아요, 리포트 보기", callback_data=f"company_report:{result.company.ticker}")]]
+        [
+            [
+                InlineKeyboardButton("Buffett", callback_data=f"company_report:buffett:{result.company.ticker}"),
+                InlineKeyboardButton("Graham", callback_data=f"company_report:graham:{result.company.ticker}"),
+            ],
+            [
+                InlineKeyboardButton("Lynch", callback_data=f"company_report:lynch:{result.company.ticker}"),
+                InlineKeyboardButton("Munger", callback_data=f"company_report:munger:{result.company.ticker}"),
+            ],
+        ]
     )
     return message, keyboard
 
@@ -213,11 +229,14 @@ def _company_confirmation_message(company, *, action: str) -> str:
     return "\n".join(lines)
 
 
-def _parse_callback_data(data: str) -> tuple[str, str]:
-    action, separator, ticker = data.partition(":")
+def _parse_callback_data(data: str) -> tuple[str, list[str]]:
+    action, separator, payload = data.partition(":")
     if not separator:
-        return "", ""
-    return action, ticker
+        return "", []
+    values = [value for value in payload.split(":") if value]
+    if action == "company_report" and len(values) == 2 and values[0] not in INVESTOR_LABELS:
+        return "", []
+    return action, values
 
 
 def _unwatch_message(chat_id: int, ticker: str) -> str:

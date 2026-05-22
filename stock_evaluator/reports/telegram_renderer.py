@@ -51,7 +51,7 @@ def render_company_report(
     lines.extend(
         [
             "",
-            "대가별 해석",
+            "선택한 대가 해석",
             explanation or "로컬 LLM 설명이 비활성화되어 있습니다.",
             "",
             "주의",

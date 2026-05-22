@@ -147,12 +147,12 @@ class CompanyCommandTests(TestCase):
     def test_company_replies_with_confirmation_preview(self):
         with patch("stock_evaluator.telegram_bot.handlers._remember_user"), patch(
             "stock_evaluator.telegram_bot.handlers._company_preview_response",
-            return_value=("이 회사를 찾는 게 맞나요? 상세 평가를 생성할까요?", "keyboard"),
+            return_value=("이 회사를 찾는 게 맞나요? 어떤 관점으로 분석할까요?", "keyboard"),
         ):
             update = FakeUpdate()
             asyncio.run(company(update, FakeContext(args=["AAPL"])))
 
-        self.assertEqual(update.effective_message.replies, ["이 회사를 찾는 게 맞나요? 상세 평가를 생성할까요?"])
+        self.assertEqual(update.effective_message.replies, ["이 회사를 찾는 게 맞나요? 어떤 관점으로 분석할까요?"])
         self.assertEqual(update.effective_message.reply_markups, ["keyboard"])
 
     def test_company_missing_ticker_replies_with_safe_error(self):
@@ -205,12 +205,17 @@ class CompanyReportMessageTests(TestCase):
         service = Mock()
         service.lookup.return_value = lookup_result
 
-        with patch("stock_evaluator.telegram_bot.handlers.CompanyLookupService", return_value=service):
-            message = _company_report_message("AAPL")
+        with patch("stock_evaluator.telegram_bot.handlers.CompanyLookupService", return_value=service), patch(
+            "stock_evaluator.telegram_bot.handlers.generate_investor_explanation",
+            return_value="[Buffett]\n- 테스트 설명",
+        ) as explainer:
+            message = _company_report_message("AAPL", "buffett")
 
         self.assertIn("[AAPL / Apple Inc.]", message)
         self.assertIn("Quality Lens v1", message)
+        self.assertIn("[Buffett]\n- 테스트 설명", message)
         self.assertNotIn("매수 추천", message)
+        explainer.assert_called_once()
         self.assertEqual(Company.objects.count(), 1)
         self.assertEqual(FinancialSnapshot.objects.count(), 1)
         self.assertEqual(LensScore.objects.count(), 1)

@@ -10,11 +10,28 @@ class LocalLLMExplanationError(RuntimeError):
     pass
 
 
-def generate_investor_explanation(company, snapshot, score_result: LensScoreResult) -> str | None:
+INVESTOR_LABELS = {
+    "buffett": "Buffett",
+    "graham": "Graham",
+    "lynch": "Peter Lynch",
+    "munger": "Munger",
+}
+
+
+def generate_investor_explanation(
+    company,
+    snapshot,
+    score_result: LensScoreResult,
+    investor: str,
+) -> str | None:
     if not settings.LOCAL_LLM_MODEL:
         return None
 
-    prompt = _build_prompt(company, snapshot, score_result)
+    normalized_investor = investor.lower()
+    if normalized_investor not in INVESTOR_LABELS:
+        raise LocalLLMExplanationError("지원하지 않는 투자 대가입니다.")
+
+    prompt = _build_prompt(company, snapshot, score_result, normalized_investor)
     payload = {
         "model": settings.LOCAL_LLM_MODEL,
         "messages": [
@@ -50,29 +67,16 @@ def generate_investor_explanation(company, snapshot, score_result: LensScoreResu
     return content
 
 
-def _build_prompt(company, snapshot, score_result: LensScoreResult) -> str:
+def _build_prompt(company, snapshot, score_result: LensScoreResult, investor: str) -> str:
+    investor_label = INVESTOR_LABELS[investor]
+    criteria = _investor_criteria(investor)
     return "\n".join(
         [
-            "아래 정량 평가 결과를 바탕으로 Buffett, Graham, Peter Lynch, Munger 관점별 해석을 작성해줘.",
-            "각 투자 대가의 기준은 아래 '투자 대가 기준'을 우선 적용해.",
+            f"아래 정량 평가 결과를 바탕으로 {investor_label} 관점의 해석만 작성해줘.",
+            "투자 대가 기준은 아래 내용을 우선 적용해.",
             "형식은 반드시 아래처럼 유지해.",
             "",
-            "[Buffett]",
-            "- 좋은 점:",
-            "- 아쉬운 점:",
-            "- 확인할 것:",
-            "",
-            "[Graham]",
-            "- 좋은 점:",
-            "- 아쉬운 점:",
-            "- 확인할 것:",
-            "",
-            "[Peter Lynch]",
-            "- 좋은 점:",
-            "- 아쉬운 점:",
-            "- 확인할 것:",
-            "",
-            "[Munger]",
+            f"[{investor_label}]",
             "- 좋은 점:",
             "- 아쉬운 점:",
             "- 확인할 것:",
@@ -84,30 +88,7 @@ def _build_prompt(company, snapshot, score_result: LensScoreResult) -> str:
             "- 매수 추천, 매도 추천, 사라, 팔아라 같은 표현은 쓰지 마.",
             "",
             "투자 대가 기준:",
-            "",
-            "[Buffett 기준]",
-            "- 핵심 관점: 좋은 회사를 합리적인 가격에 오래 보유한다.",
-            "- 중요 항목: ROE, ROIC, 영업이익률, 순이익 안정성, FCF, 부채 부담, 경제적 해자, 가격 합리성.",
-            "- 좋게 보는 조건: 높은 ROE/ROIC, 장기 FCF 플러스, 과하지 않은 부채, 이해 가능한 사업, 브랜드/네트워크 효과/전환비용/규모의 경제.",
-            "- 감점 조건: 이익 변동성, 과도한 부채, 마이너스 FCF, 복잡한 사업, 불명확한 경쟁우위, 비싼 가격.",
-            "",
-            "[Graham 기준]",
-            "- 핵심 관점: 충분히 싼 가격에 안전마진을 확보한다.",
-            "- 중요 항목: PER, PBR, 유동비율, 부채비율, NCAV, 배당 이력, 이익 안정성, 안전마진.",
-            "- 좋게 보는 조건: 낮은 PER/PBR, 높은 유동성, 낮은 부채, 장기 흑자, 내재가치 대비 할인.",
-            "- 감점 조건: 높은 PER/PBR, 적자 지속, 부채 과다, 유동성 부족, 순자산 대비 비싸거나 안전마진 부족.",
-            "",
-            "[Peter Lynch 기준]",
-            "- 핵심 관점: 성장하는 회사를 합리적인 가격에 산다.",
-            "- 중요 항목: 매출 성장률, EPS 성장률, PEG, 부채비율, 이익 지속성, 사업 이해도, 시장 확장성, 내부자/자사주.",
-            "- 좋게 보는 조건: 매출/EPS 증가, 과도하지 않은 PEG, 감당 가능한 부채, 이해 가능한 사업, 성장 여지.",
-            "- 감점 조건: 성장률 둔화, 들쭉날쭉한 EPS, 높은 PEG, 부채 의존 성장, 복잡하거나 유행성 테마인 사업.",
-            "",
-            "[Munger 기준]",
-            "- 핵심 관점: 훌륭한 사업을 오래 보유하고, 나쁜 사업은 아무리 싸도 피한다.",
-            "- 중요 항목: 사업 품질, ROIC, 경제적 해자, 가격 결정력, 반복 수익, 경영진 자본배분, 복잡성, 장기 리스크.",
-            "- 좋게 보는 조건: 높은 ROIC, 명확한 경쟁우위, 가격 결정력, 반복 매출/고객 충성도, 합리적 자본배분, 장기 생존성.",
-            "- 감점 조건: 낮은 사업 품질, 자본집약적 성장, 약한 해자, 기술 변화 취약성, 주주가치 훼손, 복잡한 사업.",
+            *criteria,
             "",
             "회사:",
             f"- 티커: {company.ticker}",
@@ -140,3 +121,37 @@ def _build_prompt(company, snapshot, score_result: LensScoreResult) -> str:
             f"- 누락 필드: {snapshot.missing_fields}",
         ]
     )
+
+
+def _investor_criteria(investor: str) -> list[str]:
+    criteria = {
+        "buffett": [
+            "[Buffett 기준]",
+            "- 핵심 관점: 좋은 회사를 합리적인 가격에 오래 보유한다.",
+            "- 중요 항목: ROE, ROIC, 영업이익률, 순이익 안정성, FCF, 부채 부담, 경제적 해자, 가격 합리성.",
+            "- 좋게 보는 조건: 높은 ROE/ROIC, 장기 FCF 플러스, 과하지 않은 부채, 이해 가능한 사업, 브랜드/네트워크 효과/전환비용/규모의 경제.",
+            "- 감점 조건: 이익 변동성, 과도한 부채, 마이너스 FCF, 복잡한 사업, 불명확한 경쟁우위, 비싼 가격.",
+        ],
+        "graham": [
+            "[Graham 기준]",
+            "- 핵심 관점: 충분히 싼 가격에 안전마진을 확보한다.",
+            "- 중요 항목: PER, PBR, 유동비율, 부채비율, NCAV, 배당 이력, 이익 안정성, 안전마진.",
+            "- 좋게 보는 조건: 낮은 PER/PBR, 높은 유동성, 낮은 부채, 장기 흑자, 내재가치 대비 할인.",
+            "- 감점 조건: 높은 PER/PBR, 적자 지속, 부채 과다, 유동성 부족, 순자산 대비 비싸거나 안전마진 부족.",
+        ],
+        "lynch": [
+            "[Peter Lynch 기준]",
+            "- 핵심 관점: 성장하는 회사를 합리적인 가격에 산다.",
+            "- 중요 항목: 매출 성장률, EPS 성장률, PEG, 부채비율, 이익 지속성, 사업 이해도, 시장 확장성, 내부자/자사주.",
+            "- 좋게 보는 조건: 매출/EPS 증가, 과도하지 않은 PEG, 감당 가능한 부채, 이해 가능한 사업, 성장 여지.",
+            "- 감점 조건: 성장률 둔화, 들쭉날쭉한 EPS, 높은 PEG, 부채 의존 성장, 복잡하거나 유행성 테마인 사업.",
+        ],
+        "munger": [
+            "[Munger 기준]",
+            "- 핵심 관점: 훌륭한 사업을 오래 보유하고, 나쁜 사업은 아무리 싸도 피한다.",
+            "- 중요 항목: 사업 품질, ROIC, 경제적 해자, 가격 결정력, 반복 수익, 경영진 자본배분, 복잡성, 장기 리스크.",
+            "- 좋게 보는 조건: 높은 ROIC, 명확한 경쟁우위, 가격 결정력, 반복 매출/고객 충성도, 합리적 자본배분, 장기 생존성.",
+            "- 감점 조건: 낮은 사업 품질, 자본집약적 성장, 약한 해자, 기술 변화 취약성, 주주가치 훼손, 복잡한 사업.",
+        ],
+    }
+    return criteria[investor]
