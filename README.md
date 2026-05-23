@@ -1,6 +1,6 @@
 # Global Equity Lens Bot
 
-텔레그램에서 미국 상장기업을 조회하고, 재무 데이터와 간단한 품질 점수를 보여주는 개인용 봇입니다.
+텔레그램에서 미국 상장기업을 조회하고, 재무 데이터와 품질 점수, 로컬 LLM 기반 대가별 해석을 보여주는 개인용 봇입니다.
 
 이 저장소의 현재 범위는 회사 평가와 정보 조회까지입니다.
 
@@ -8,7 +8,7 @@
 - 자동 주문 없음
 - 계좌 조회 없음
 - 랭킹 없음
-- 다중 렌즈 없음
+- 실제 투자 조언 없음
 
 ## 지금 할 수 있는 것
 
@@ -20,7 +20,8 @@
 - `/unwatch AAPL`
 - `/watchlist`
 
-`/company`는 다음을 보여줍니다.
+`/company`는 회사를 먼저 확인한 뒤, 선택한 투자자 관점의 분석을 대기열에 넣습니다.
+분석이 끝나면 텔레그램 새 메시지로 다음 내용을 보내줍니다.
 
 - 회사 기본 정보
 - 데이터 출처
@@ -28,6 +29,7 @@
 - 누락 필드
 - `Quality Lens v1` 점수
 - 평가 신뢰도
+- 선택한 투자자 관점의 로컬 LLM 해석
 - 추가 확인사항
 
 관심종목 명령어는 나중에 일일 뉴스 리포트와 주간 리포트의 대상 목록으로 사용합니다.
@@ -80,6 +82,16 @@ uv run python manage.py test
 uv run python manage.py run_telegram_bot
 ```
 
+분석 워커 실행:
+
+```bash
+uv run python manage.py run_analysis_worker
+```
+
+`run_telegram_bot`은 텔레그램 명령과 버튼을 받는 프로세스입니다.
+`run_analysis_worker`는 오래 걸리는 로컬 LLM 분석 작업을 하나씩 처리하는 프로세스입니다.
+로컬에서 직접 실행할 때는 두 명령을 각각 다른 터미널에서 실행하세요.
+
 ## macOS 백그라운드 실행
 
 `launchd`를 쓰면 로그인 후 자동으로 봇을 올리고, 재시작도 관리할 수 있습니다.
@@ -95,13 +107,17 @@ uv run python manage.py migrate
 ./scripts/install_launch_agent.sh
 ```
 
-이 스크립트는 현재 저장소 경로를 기준으로 `~/Library/LaunchAgents/com.george.stockrecommender.bot.plist`를 생성하고 서비스를 시작합니다.
+이 스크립트는 현재 저장소 경로를 기준으로 두 개의 서비스를 생성하고 시작합니다.
+
+- `~/Library/LaunchAgents/com.george.stockrecommender.bot.plist`
+- `~/Library/LaunchAgents/com.george.stockrecommender.worker.plist`
 
 ### 2. 상태 확인
 
 ```bash
 launchctl print gui/$(id -u)/com.george.stockrecommender.bot
-tail -f logs/bot.out.log logs/bot.err.log
+launchctl print gui/$(id -u)/com.george.stockrecommender.worker
+tail -f logs/bot.out.log logs/bot.err.log logs/worker.out.log logs/worker.err.log
 ```
 
 ### 3. 코드 변경 후 재시작
@@ -112,7 +128,8 @@ tail -f logs/bot.out.log logs/bot.err.log
 ./scripts/restart_bot.sh
 ```
 
-이 스크립트는 `uv sync`, `migrate`, `launchd` 재시작을 순서대로 실행합니다.
+이 스크립트는 `uv sync`, `migrate`, 봇 재시작, 분석 워커 재시작을 순서대로 실행합니다.
+DB가 아직 없어도 `migrate` 단계에서 `db.sqlite3`를 만들고 필요한 테이블을 생성합니다.
 
 ### 4. 중지 및 제거
 
@@ -136,7 +153,9 @@ tail -f logs/bot.out.log logs/bot.err.log
 
 ### `/company TICKER`
 
-회사 기본 정보를 먼저 보여주고, `Buffett`, `Graham`, `Lynch`, `Munger` 버튼 중 하나를 선택합니다. 선택한 투자자 관점의 품질 점수 리포트와 로컬 LLM 해석을 생성합니다.
+회사 기본 정보를 먼저 보여주고, `Buffett`, `Graham`, `Lynch`, `Munger` 버튼 중 하나를 선택합니다.
+버튼을 누르면 분석 작업이 대기열에 들어가고, 봇은 먼저 대기 순서를 알려줍니다.
+분석 워커가 작업을 완료하면 선택한 투자자 관점의 품질 점수 리포트와 로컬 LLM 해석을 새 메시지로 보냅니다.
 
 예:
 
@@ -213,6 +232,8 @@ Quality Lens v1
 - 업종/상품 유형 분류
 - `Quality Lens v1`
 - 로컬 LLM 기반 대가별 해석
+- DB 기반 분석 작업 대기열
+- 단일 분석 워커
 - `/company` 결과 렌더링
 
 ## 데이터 소스
@@ -231,6 +252,7 @@ Quality Lens v1
 
 - 점수는 코드가 계산합니다.
 - 설명은 로컬 LLM이 생성하되, 점수 계산은 코드 결과만 사용합니다.
+- 로컬 LLM 호출은 워커가 하나씩 처리합니다. 여러 사용자가 동시에 눌러도 봇 응답은 먼저 돌아가고, 분석 결과는 완료 후 새 메시지로 전송됩니다.
 - 일반 품질 점수를 쓰기 어려운 업종은 낮은 신뢰도로 처리합니다.
 - 실제 주문 기능은 아직 넣지 않습니다.
 
@@ -247,6 +269,7 @@ uv run python manage.py test
 - DB 모델 제약
 - 시장 데이터 정규화
 - `Quality Lens v1`
+- 분석 작업 큐와 워커
 - `/company` 통합 경로
 
 ## 다음 단계

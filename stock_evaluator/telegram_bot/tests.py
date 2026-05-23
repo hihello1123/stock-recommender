@@ -1,9 +1,11 @@
 import asyncio
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
+from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 from telegram.constants import ChatType
 
 from stock_evaluator.companies.models import Company, FinancialSnapshot, LensScore
@@ -18,21 +20,46 @@ from stock_evaluator.telegram_bot.handlers import (
     _watchlist_message,
     company,
     help_command,
+    handle_confirmation,
     ping,
     start,
 )
 from stock_evaluator.telegram_bot.messages import help_message, start_message
+from stock_evaluator.telegram_bot.models import AnalysisJob
+from stock_evaluator.telegram_bot.services import (
+    enqueue_analysis_job,
+    mark_job_failed,
+    mark_job_running,
+    mark_job_succeeded,
+    queue_position,
+    reset_stale_running_jobs,
+)
 from stock_evaluator.users.models import TelegramUser
 
 
 class FakeMessage:
-    def __init__(self):
+    def __init__(self, message_id: int = 555):
+        self.message_id = message_id
         self.replies: list[str] = []
         self.reply_markups = []
 
     async def reply_text(self, text: str, **kwargs) -> None:
         self.replies.append(text)
         self.reply_markups.append(kwargs.get("reply_markup"))
+
+
+class FakeCallbackQuery:
+    def __init__(self, data: str):
+        self.data = data
+        self.message = FakeMessage()
+        self.answered = False
+        self.edits: list[str] = []
+
+    async def answer(self) -> None:
+        self.answered = True
+
+    async def edit_message_text(self, text: str) -> None:
+        self.edits.append(text)
 
 
 class FakeChat:
@@ -47,10 +74,16 @@ class FakeUser:
 
 
 class FakeUpdate:
-    def __init__(self, chat_id: int = 123456789, chat_type: str = ChatType.PRIVATE):
+    def __init__(
+        self,
+        chat_id: int = 123456789,
+        chat_type: str = ChatType.PRIVATE,
+        callback_query: FakeCallbackQuery | None = None,
+    ):
         self.effective_message = FakeMessage()
         self.effective_chat = FakeChat(chat_id, chat_type)
         self.effective_user = FakeUser()
+        self.callback_query = callback_query
 
 
 class FakeContext:
@@ -163,6 +196,85 @@ class CompanyCommandTests(TestCase):
 
         self.assertEqual(update.effective_message.replies, ["티커를 입력해주세요. 예: /company AAPL"])
 
+    def test_company_confirmation_enqueues_analysis_job(self):
+        update = FakeUpdate(callback_query=FakeCallbackQuery("company_report:buffett:AAPL"))
+
+        asyncio.run(handle_confirmation(update, None))
+
+        job = AnalysisJob.objects.get()
+        self.assertEqual(job.chat_id, update.effective_chat.id)
+        self.assertEqual(job.message_id, update.callback_query.message.message_id)
+        self.assertEqual(job.ticker, "AAPL")
+        self.assertEqual(job.investor, "buffett")
+        self.assertTrue(update.callback_query.answered)
+        self.assertEqual(
+            update.callback_query.edits,
+            [
+                "\n".join(
+                    [
+                        "AAPL / Buffett 관점 분석을 준비하고 있습니다.",
+                        "자료 조사중...",
+                        "현재 대기 순서: 1번째",
+                        "완료되면 새 메시지로 리포트를 보내드릴게요.",
+                    ]
+                )
+            ],
+        )
+
+
+class AnalysisJobServiceTests(TestCase):
+    def test_enqueue_analysis_job_normalizes_input(self):
+        job, created, position = enqueue_analysis_job(
+            chat_id=123,
+            message_id=456,
+            ticker=" aapl ",
+            investor=" Buffett ",
+        )
+
+        self.assertTrue(created)
+        self.assertEqual(position, 1)
+        self.assertEqual(job.ticker, "AAPL")
+        self.assertEqual(job.investor, "buffett")
+
+    def test_enqueue_analysis_job_reuses_active_duplicate(self):
+        first, _, _ = enqueue_analysis_job(chat_id=123, message_id=1, ticker="AAPL", investor="buffett")
+        second, created, position = enqueue_analysis_job(chat_id=123, message_id=2, ticker="AAPL", investor="buffett")
+
+        self.assertFalse(created)
+        self.assertEqual(second.id, first.id)
+        self.assertEqual(position, 1)
+        self.assertEqual(AnalysisJob.objects.count(), 1)
+
+    def test_queue_position_counts_active_jobs_in_order(self):
+        first, _, _ = enqueue_analysis_job(chat_id=1, message_id=1, ticker="AAPL", investor="buffett")
+        second, _, _ = enqueue_analysis_job(chat_id=2, message_id=2, ticker="MSFT", investor="graham")
+        mark_job_succeeded(first, "done")
+
+        self.assertEqual(queue_position(first), 0)
+        self.assertEqual(queue_position(second), 1)
+
+    def test_reset_stale_running_jobs_returns_jobs_to_pending(self):
+        job, _, _ = enqueue_analysis_job(chat_id=123, message_id=1, ticker="AAPL", investor="buffett")
+        mark_job_running(job)
+        AnalysisJob.objects.filter(id=job.id).update(started_at=timezone.now() - timedelta(minutes=31))
+
+        reset_count = reset_stale_running_jobs(stale_after_minutes=30)
+
+        job.refresh_from_db()
+        self.assertEqual(reset_count, 1)
+        self.assertEqual(job.status, AnalysisJob.Status.PENDING)
+        self.assertIsNone(job.started_at)
+
+    def test_mark_job_failed_records_error(self):
+        job, _, _ = enqueue_analysis_job(chat_id=123, message_id=1, ticker="AAPL", investor="buffett")
+
+        mark_job_failed(job, "boom")
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, AnalysisJob.Status.FAILED)
+        self.assertEqual(job.error_message, "boom")
+        self.assertIsNotNone(job.finished_at)
+
 
 class CompanyReportMessageTests(TestCase):
     def test_company_report_message_saves_data_and_score(self):
@@ -219,6 +331,38 @@ class CompanyReportMessageTests(TestCase):
         self.assertEqual(Company.objects.count(), 1)
         self.assertEqual(FinancialSnapshot.objects.count(), 1)
         self.assertEqual(LensScore.objects.count(), 1)
+
+
+class AnalysisWorkerTests(TestCase):
+    @override_settings(TELEGRAM_BOT_TOKEN="123456:ABCDEF")
+    def test_worker_processes_one_pending_job(self):
+        job, _, _ = enqueue_analysis_job(chat_id=123, message_id=1, ticker="AAPL", investor="buffett")
+
+        with patch(
+            "stock_evaluator.telegram_bot.management.commands.run_analysis_worker._company_report_message",
+            return_value="report",
+        ), patch("stock_evaluator.telegram_bot.management.commands.run_analysis_worker._send_message") as send_message:
+            call_command("run_analysis_worker", "--once")
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, AnalysisJob.Status.SUCCEEDED)
+        self.assertEqual(job.result_message, "report")
+        send_message.assert_called_once()
+
+    @override_settings(TELEGRAM_BOT_TOKEN="123456:ABCDEF")
+    def test_worker_marks_job_failed_when_report_generation_fails(self):
+        job, _, _ = enqueue_analysis_job(chat_id=123, message_id=1, ticker="AAPL", investor="buffett")
+
+        with patch(
+            "stock_evaluator.telegram_bot.management.commands.run_analysis_worker._company_report_message",
+            side_effect=RuntimeError("failed"),
+        ), patch("stock_evaluator.telegram_bot.management.commands.run_analysis_worker._send_message") as send_message:
+            call_command("run_analysis_worker", "--once")
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, AnalysisJob.Status.FAILED)
+        self.assertEqual(job.error_message, "failed")
+        send_message.assert_called_once_with(ANY, 123, "분석 생성에 실패했습니다. 잠시 후 다시 시도해주세요.")
 
 
 class WatchlistMessageTests(TestCase):
