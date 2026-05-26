@@ -1,6 +1,7 @@
 import asyncio
 from datetime import date, timedelta
 from decimal import Decimal
+from io import StringIO
 from unittest.mock import ANY, Mock, patch
 
 from django.core.management import call_command
@@ -342,7 +343,7 @@ class AnalysisWorkerTests(TestCase):
             "stock_evaluator.telegram_bot.management.commands.run_analysis_worker._company_report_message",
             return_value="report",
         ), patch("stock_evaluator.telegram_bot.management.commands.run_analysis_worker._send_message") as send_message:
-            call_command("run_analysis_worker", "--once")
+            call_command("run_analysis_worker", "--once", stderr=StringIO())
 
         job.refresh_from_db()
         self.assertEqual(job.status, AnalysisJob.Status.SUCCEEDED)
@@ -357,11 +358,13 @@ class AnalysisWorkerTests(TestCase):
             "stock_evaluator.telegram_bot.management.commands.run_analysis_worker._company_report_message",
             side_effect=RuntimeError("failed"),
         ), patch("stock_evaluator.telegram_bot.management.commands.run_analysis_worker._send_message") as send_message:
-            call_command("run_analysis_worker", "--once")
+            stderr = StringIO()
+            call_command("run_analysis_worker", "--once", stderr=stderr)
 
         job.refresh_from_db()
         self.assertEqual(job.status, AnalysisJob.Status.FAILED)
         self.assertEqual(job.error_message, "failed")
+        self.assertIn("RuntimeError: failed", stderr.getvalue())
         send_message.assert_called_once_with(ANY, 123, "분석 생성에 실패했습니다. 잠시 후 다시 시도해주세요.")
 
 

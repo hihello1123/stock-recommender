@@ -1,10 +1,9 @@
 import time
+import traceback
+from urllib import parse, request
 
-from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from telegram import Bot
-from telegram.error import TelegramError
 
 from stock_evaluator.telegram_bot.handlers import _company_report_message
 from stock_evaluator.telegram_bot.services import (
@@ -30,20 +29,19 @@ class Command(BaseCommand):
         if not settings.TELEGRAM_BOT_TOKEN:
             raise CommandError("TELEGRAM_BOT_TOKEN is required.")
 
-        bot = Bot(settings.TELEGRAM_BOT_TOKEN)
         reset_count = reset_stale_running_jobs()
         if reset_count:
             self.stdout.write(f"Reset stale running jobs: {reset_count}")
         self.stdout.write("Starting analysis worker...")
 
         while True:
-            processed = self._process_next_job(bot)
+            processed = self._process_next_job(settings.TELEGRAM_BOT_TOKEN)
             if options["once"]:
                 return
             if not processed:
                 time.sleep(options["sleep_seconds"])
 
-    def _process_next_job(self, bot: Bot) -> bool:
+    def _process_next_job(self, bot_token: str) -> bool:
         job = next_pending_job()
         if job is None:
             return False
@@ -51,13 +49,15 @@ class Command(BaseCommand):
         mark_job_running(job)
         try:
             message = _company_report_message(job.ticker, job.investor)
-            _send_message(bot, job.chat_id, message)
+            _send_message(bot_token, job.chat_id, message)
         except Exception as exc:
+            self.stderr.write(traceback.format_exc())
             error_message = str(exc) or exc.__class__.__name__
             mark_job_failed(job, error_message)
             try:
-                _send_message(bot, job.chat_id, "분석 생성에 실패했습니다. 잠시 후 다시 시도해주세요.")
-            except TelegramError:
+                _send_message(bot_token, job.chat_id, "분석 생성에 실패했습니다. 잠시 후 다시 시도해주세요.")
+            except Exception:
+                self.stderr.write(traceback.format_exc())
                 pass
             return True
 
@@ -65,9 +65,15 @@ class Command(BaseCommand):
         return True
 
 
-def _send_message(bot: Bot, chat_id: int, text: str) -> None:
+def _send_message(bot_token: str, chat_id: int, text: str) -> None:
+    api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     for start in range(0, len(text), TELEGRAM_MESSAGE_CHUNK_SIZE):
-        async_to_sync(bot.send_message)(
-            chat_id=chat_id,
-            text=text[start : start + TELEGRAM_MESSAGE_CHUNK_SIZE],
-        )
+        payload = parse.urlencode(
+            {
+                "chat_id": chat_id,
+                "text": text[start : start + TELEGRAM_MESSAGE_CHUNK_SIZE],
+            }
+        ).encode()
+        http_request = request.Request(api_url, data=payload, method="POST")
+        with request.urlopen(http_request, timeout=30) as response:
+            response.read()
