@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+import math
 from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
@@ -110,6 +111,21 @@ class DataNormalizerTests(SimpleTestCase):
 
         self.assertIsNone(values["price"])
         self.assertIn("price", values["missing_fields"])
+
+    def test_non_finite_numbers_become_json_safe_missing_values(self):
+        payload = MarketDataPayload(
+            ticker="APPL",
+            info={"currentPrice": math.nan, "nested": {"bad": math.inf}},
+            fast_info={"last_price": math.nan},
+        )
+
+        values = normalize_market_data(payload, as_of_date=date(2026, 5, 21))
+
+        self.assertIsNone(values["price"])
+        self.assertIn("price", values["missing_fields"])
+        self.assertIsNone(values["raw_payload"]["info"]["currentPrice"])
+        self.assertIsNone(values["raw_payload"]["info"]["nested"]["bad"])
+        self.assertIsNone(values["raw_payload"]["fast_info"]["last_price"])
 
 
 class FakeMarketDataClient:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal, InvalidOperation
+import math
 from typing import Any
 
 from stock_evaluator.companies.models import FinancialSnapshot
@@ -60,8 +61,8 @@ def normalize_market_data(
         "cash": _decimal(info.get("totalCash")),
         "raw_payload": {
             "ticker": payload.ticker,
-            "info": info,
-            "fast_info": fast_info,
+            "info": _json_safe_value(info),
+            "fast_info": _json_safe_value(fast_info),
         },
     }
     values["missing_fields"] = [
@@ -88,6 +89,25 @@ def _decimal(value: Any) -> Decimal | None:
     if value in (None, ""):
         return None
     try:
-        return Decimal(str(value))
+        decimal_value = Decimal(str(value))
     except (InvalidOperation, ValueError):
         return None
+    if not decimal_value.is_finite():
+        return None
+    return decimal_value
+
+
+def _json_safe_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_safe_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item) for item in value]
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, Decimal):
+        return str(value) if value.is_finite() else None
+    if isinstance(value, (str, int, bool)) or value is None:
+        return value
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
