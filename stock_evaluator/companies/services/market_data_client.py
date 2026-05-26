@@ -1,7 +1,16 @@
 from dataclasses import dataclass
+import warnings
 from typing import Any
 
 import yfinance as yf
+
+
+warnings.filterwarnings(
+    "ignore",
+    message=".*Timestamp.utcnow is deprecated.*",
+    category=Warning,
+    module="yfinance.*",
+)
 
 
 class MarketDataError(RuntimeError):
