@@ -39,7 +39,7 @@ class TelegramRendererTests(SimpleTestCase):
 
         self.assertIn("[AAPL / Apple Inc.]", message)
         self.assertIn("점수: 90 / 100", message)
-        self.assertIn("선택한 대가 해석", message)
+        self.assertIn("선택한 전문가 해석", message)
         self.assertIn("로컬 LLM 설명이 비활성화되어 있습니다.", message)
         self.assertIn("이 결과는 자동 매수 신호가 아닙니다.", message)
 

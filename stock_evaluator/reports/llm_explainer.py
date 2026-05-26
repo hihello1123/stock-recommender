@@ -29,7 +29,7 @@ def generate_investor_explanation(
 
     normalized_investor = investor.lower()
     if normalized_investor not in INVESTOR_LABELS:
-        raise LocalLLMExplanationError("지원하지 않는 투자 대가입니다.")
+        raise LocalLLMExplanationError("지원하지 않는 투자 전문가입니다.")
 
     prompt = _build_prompt(company, snapshot, score_result, normalized_investor)
     payload = {
@@ -39,7 +39,7 @@ def generate_investor_explanation(
                 "role": "system",
                 "content": (
                     "너는 미국 상장기업을 분석하는 보조자다. "
-                    "점수 계산은 이미 코드가 끝냈고, 너는 그 결과를 투자 대가 관점으로 설명만 한다. "
+                    "점수 계산은 이미 코드가 끝냈고, 너는 그 결과를 투자 전문가 관점으로 설명만 한다. "
                     "매수/매도 추천, 목표가, 주문 지시는 절대 쓰지 않는다."
                 ),
             },
@@ -73,7 +73,7 @@ def _build_prompt(company, snapshot, score_result: LensScoreResult, investor: st
     return "\n".join(
         [
             f"아래 정량 평가 결과를 바탕으로 {investor_label} 관점의 해석만 작성해줘.",
-            "투자 대가 기준은 아래 내용을 우선 적용해.",
+            "투자 전문가 기준은 아래 내용을 우선 적용해.",
             "형식은 반드시 아래처럼 유지해.",
             "",
             f"[{investor_label}]",
@@ -83,11 +83,11 @@ def _build_prompt(company, snapshot, score_result: LensScoreResult, investor: st
             "",
             "규칙:",
             "- 한국어로 짧게 써.",
-            "- 각 대가별로 3줄 이내로 써.",
+            "- 각 전문가별로 3줄 이내로 써.",
             "- 제공된 데이터에 없는 내용은 '추가 확인 필요'라고 써.",
             "- 매수 추천, 매도 추천, 사라, 팔아라 같은 표현은 쓰지 마.",
             "",
-            "투자 대가 기준:",
+            "투자 전문가 기준:",
             *criteria,
             "",
             "회사:",
