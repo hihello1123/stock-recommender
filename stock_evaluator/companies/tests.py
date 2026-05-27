@@ -2,8 +2,9 @@ from datetime import date
 
 from django.db import IntegrityError
 from django.test import TestCase
+from django.utils import timezone
 
-from stock_evaluator.companies.models import Company, FinancialSnapshot, LensScore
+from stock_evaluator.companies.models import Company, FinancialSnapshot, FinancialStatementPeriod, LensScore
 
 
 class CompanyModelTests(TestCase):
@@ -33,6 +34,29 @@ class FinancialSnapshotModelTests(TestCase):
                 period_end_date=date(2025, 12, 31),
                 period_type=FinancialSnapshot.PeriodType.ANNUAL,
             )
+
+
+class FinancialStatementPeriodModelTests(TestCase):
+    def test_statement_period_source_accession_must_be_unique(self):
+        company = Company.objects.create(ticker="AAPL", name="Apple Inc.", exchange="NASDAQ")
+        values = {
+            "company": company,
+            "source": "sec_companyfacts",
+            "form_type": FinancialStatementPeriod.FormType.TEN_K,
+            "period_type": FinancialStatementPeriod.PeriodType.ANNUAL,
+            "fiscal_year": 2025,
+            "fiscal_period": "FY",
+            "period_end_date": date(2025, 9, 27),
+            "filed_date": date(2025, 10, 31),
+            "accession_number": "0000320193-25-000079",
+            "currency": "USD",
+            "revenue": "391035000000",
+            "collected_at": timezone.now(),
+        }
+        FinancialStatementPeriod.objects.create(**values)
+
+        with self.assertRaises(IntegrityError):
+            FinancialStatementPeriod.objects.create(**values)
 
 
 class LensScoreModelTests(TestCase):

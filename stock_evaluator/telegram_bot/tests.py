@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import ANY, Mock, patch
 
 from django.core.management import call_command
+from django.db import IntegrityError
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from telegram.constants import ChatType
@@ -33,7 +34,7 @@ from stock_evaluator.telegram_bot.handlers import (
     unsupported_command,
 )
 from stock_evaluator.telegram_bot.messages import help_message, start_message
-from stock_evaluator.telegram_bot.models import AnalysisJob
+from stock_evaluator.telegram_bot.models import AnalysisJob, SecIngestJob, SecIngestSubscriber
 from stock_evaluator.telegram_bot.natural_language import (
     NaturalLanguageRoute,
     route_natural_language_message,
@@ -404,6 +405,28 @@ class AnalysisJobServiceTests(TestCase):
         self.assertEqual(job.status, AnalysisJob.Status.FAILED)
         self.assertEqual(job.error_message, "boom")
         self.assertIsNotNone(job.finished_at)
+
+
+class SecIngestJobModelTests(TestCase):
+    def test_active_sec_ingest_job_must_be_unique_per_ticker(self):
+        SecIngestJob.objects.create(ticker="AAPL")
+
+        with self.assertRaises(IntegrityError):
+            SecIngestJob.objects.create(ticker="AAPL")
+
+    def test_finished_sec_ingest_job_allows_new_active_job(self):
+        SecIngestJob.objects.create(ticker="AAPL", status=SecIngestJob.Status.SUCCEEDED)
+
+        job = SecIngestJob.objects.create(ticker="AAPL")
+
+        self.assertEqual(job.status, SecIngestJob.Status.PENDING)
+
+    def test_sec_ingest_subscriber_must_be_unique_per_job_chat(self):
+        job = SecIngestJob.objects.create(ticker="AAPL")
+        SecIngestSubscriber.objects.create(job=job, chat_id=123456789)
+
+        with self.assertRaises(IntegrityError):
+            SecIngestSubscriber.objects.create(job=job, chat_id=123456789)
 
 
 class CompanyReportMessageTests(TestCase):

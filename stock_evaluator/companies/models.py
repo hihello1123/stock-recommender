@@ -105,6 +105,67 @@ class FinancialSnapshot(models.Model):
         return f"{self.company.ticker} {self.source} {self.as_of_date}"
 
 
+class FinancialStatementPeriod(models.Model):
+    class PeriodType(models.TextChoices):
+        ANNUAL = "annual", "Annual"
+        QUARTERLY = "quarterly", "Quarterly"
+
+    class FormType(models.TextChoices):
+        TEN_K = "10-K", "10-K"
+        TEN_K_A = "10-K/A", "10-K/A"
+        TEN_Q = "10-Q", "10-Q"
+        TEN_Q_A = "10-Q/A", "10-Q/A"
+
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        related_name="financial_statement_periods",
+    )
+    source = models.CharField(max_length=64, default="sec_companyfacts")
+    form_type = models.CharField(max_length=8, choices=FormType.choices)
+    period_type = models.CharField(max_length=16, choices=PeriodType.choices)
+    fiscal_year = models.PositiveSmallIntegerField()
+    fiscal_period = models.CharField(max_length=8)
+    period_end_date = models.DateField()
+    filed_date = models.DateField(null=True, blank=True)
+    accession_number = models.CharField(max_length=32)
+    currency = models.CharField(max_length=8, blank=True)
+    revenue = models.DecimalField(max_digits=24, decimal_places=2, null=True, blank=True)
+    gross_profit = models.DecimalField(max_digits=24, decimal_places=2, null=True, blank=True)
+    operating_income = models.DecimalField(max_digits=24, decimal_places=2, null=True, blank=True)
+    net_income = models.DecimalField(max_digits=24, decimal_places=2, null=True, blank=True)
+    eps_diluted = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    total_assets = models.DecimalField(max_digits=24, decimal_places=2, null=True, blank=True)
+    total_liabilities = models.DecimalField(max_digits=24, decimal_places=2, null=True, blank=True)
+    shareholders_equity = models.DecimalField(max_digits=24, decimal_places=2, null=True, blank=True)
+    current_assets = models.DecimalField(max_digits=24, decimal_places=2, null=True, blank=True)
+    current_liabilities = models.DecimalField(max_digits=24, decimal_places=2, null=True, blank=True)
+    cash = models.DecimalField(max_digits=24, decimal_places=2, null=True, blank=True)
+    operating_cash_flow = models.DecimalField(max_digits=24, decimal_places=2, null=True, blank=True)
+    capital_expenditure = models.DecimalField(max_digits=24, decimal_places=2, null=True, blank=True)
+    dividends_paid = models.DecimalField(max_digits=24, decimal_places=2, null=True, blank=True)
+    missing_fields = models.JSONField(default=list, blank=True)
+    collected_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "source", "accession_number", "period_end_date", "period_type"],
+                name="unique_statement_period_source_accession",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["company", "period_type", "period_end_date"]),
+            models.Index(fields=["source", "collected_at"]),
+            models.Index(fields=["accession_number"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.company.ticker} {self.form_type} {self.period_end_date}"
+
+
 class LensScore(models.Model):
     class Confidence(models.TextChoices):
         HIGH = "high", "High"
