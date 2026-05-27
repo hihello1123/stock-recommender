@@ -8,8 +8,10 @@ from django.test import SimpleTestCase
 from stock_evaluator.companies.models import FinancialSnapshot
 from stock_evaluator.companies.services.company_lookup import CompanyLookupService
 from stock_evaluator.companies.services.company_search import (
+    CompanySearchResult,
     YFinanceCompanySearchClient,
     _normalize_quotes,
+    rank_ticker_matches,
 )
 from stock_evaluator.companies.services.data_normalizer import normalize_market_data
 from stock_evaluator.companies.services.market_data_client import (
@@ -24,6 +26,9 @@ from stock_evaluator.companies.services.market_data_client import (
 class TickerNormalizerTests(SimpleTestCase):
     def test_normalize_ticker_strips_and_uppercases(self):
         self.assertEqual(normalize_ticker(" aapl "), "AAPL")
+
+    def test_normalize_ticker_preserves_punctuation(self):
+        self.assertEqual(normalize_ticker(" brk.b "), "BRK.B")
 
     def test_normalize_ticker_rejects_empty_input(self):
         with self.assertRaises(ValueError):
@@ -90,6 +95,18 @@ class CompanySearchTests(SimpleTestCase):
 
             with self.assertRaises(MarketDataError):
                 client.search("apple")
+
+    def test_rank_ticker_matches_ignores_common_separators(self):
+        matches = rank_ticker_matches(
+            "BRK.B",
+            [
+                CompanySearchResult(ticker="BRK-A", name="Berkshire Hathaway Inc."),
+                CompanySearchResult(ticker="BRK-B", name="Berkshire Hathaway Inc."),
+            ],
+        )
+
+        self.assertEqual(matches[0].ticker, "BRK-B")
+        self.assertEqual(matches[0].similarity, 1)
 
 
 class DataNormalizerTests(SimpleTestCase):

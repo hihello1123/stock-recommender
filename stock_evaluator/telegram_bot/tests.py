@@ -19,6 +19,7 @@ from stock_evaluator.telegram_bot.handlers import (
     _natural_language_response,
     _remember_user,
     _ticker_search_message,
+    _ticker_not_found_message,
     _unwatch_message,
     _watch_message,
     _watchlist_message,
@@ -29,6 +30,7 @@ from stock_evaluator.telegram_bot.handlers import (
     ping,
     start,
     ticker,
+    unsupported_command,
 )
 from stock_evaluator.telegram_bot.messages import help_message, start_message
 from stock_evaluator.telegram_bot.models import AnalysisJob
@@ -225,6 +227,13 @@ class TelegramHandlerTests(TestCase):
 
         self.assertEqual(update.effective_message.replies, [ACCESS_DENIED_MESSAGE])
 
+    def test_unsupported_command_replies_with_help_hint(self):
+        update = FakeUpdate()
+
+        asyncio.run(unsupported_command(update, None))
+
+        self.assertEqual(update.effective_message.replies, ["지원하지 않는 명령어입니다. /help로 사용 가능한 명령어를 확인하세요."])
+
     def test_remember_user_saves_public_user(self):
         _remember_user(123456789, "george")
 
@@ -342,6 +351,19 @@ class AnalysisJobServiceTests(TestCase):
         self.assertTrue(created)
         self.assertEqual(position, 1)
         self.assertEqual(job.ticker, "AAPL")
+        self.assertEqual(job.investor, "buffett")
+
+    def test_enqueue_analysis_job_preserves_punctuated_ticker(self):
+        job, created, position = enqueue_analysis_job(
+            chat_id=123,
+            message_id=456,
+            ticker=" brk.b ",
+            investor=" Buffett ",
+        )
+
+        self.assertTrue(created)
+        self.assertEqual(position, 1)
+        self.assertEqual(job.ticker, "BRK.B")
         self.assertEqual(job.investor, "buffett")
 
     def test_enqueue_analysis_job_reuses_active_duplicate(self):
@@ -462,6 +484,37 @@ class TickerSearchMessageTests(TestCase):
             message = _ticker_search_message("unknown")
 
         self.assertEqual(message, "'unknown' 검색 결과가 없습니다.")
+
+    def test_ticker_not_found_message_lists_similar_candidates(self):
+        service = Mock()
+        service.search.return_value = [
+            SimpleNamespace(ticker="BRK-A", name="Berkshire Hathaway Inc.", exchange="NYSE", quote_type="EQUITY"),
+            SimpleNamespace(ticker="BRK-B", name="Berkshire Hathaway Inc.", exchange="NYSE", quote_type="EQUITY"),
+        ]
+
+        with patch("stock_evaluator.telegram_bot.handlers.YFinanceCompanySearchClient", return_value=service):
+            message = _ticker_not_found_message("brk.b")
+
+        self.assertIn("BRK.B 티커를 찾지 못했습니다.", message)
+        self.assertIn("1. BRK-B / Berkshire Hathaway Inc. (NYSE / EQUITY)", message)
+        self.assertIn("/company BRK-B", message)
+
+    def test_ticker_not_found_message_handles_empty_candidates(self):
+        service = Mock()
+        service.search.return_value = []
+
+        with patch("stock_evaluator.telegram_bot.handlers.YFinanceCompanySearchClient", return_value=service):
+            message = _ticker_not_found_message("unknown")
+
+        self.assertEqual(
+            message,
+            "\n".join(
+                [
+                    "UNKNOWN 티커를 찾지 못했습니다.",
+                    "회사명이나 티커를 다시 확인해주세요. 예: /ticker apple",
+                ]
+            ),
+        )
 
 
 class NaturalLanguageResponseTests(TestCase):

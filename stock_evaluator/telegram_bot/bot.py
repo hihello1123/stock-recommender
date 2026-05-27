@@ -23,5 +23,6 @@ def build_application(token: str | None = None) -> Application:
     application.add_handler(CommandHandler("unwatch", handlers.unwatch))
     application.add_handler(CommandHandler("watchlist", handlers.watchlist))
     application.add_handler(CallbackQueryHandler(handlers.handle_confirmation))
+    application.add_handler(MessageHandler(filters.COMMAND, handlers.unsupported_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_text))
     return application

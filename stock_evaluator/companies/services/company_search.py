@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+from difflib import SequenceMatcher
+import re
 from typing import Any
 
 import yfinance as yf
@@ -12,6 +14,7 @@ class CompanySearchResult:
     name: str
     exchange: str = ""
     quote_type: str = ""
+    similarity: float = 0
 
 
 class YFinanceCompanySearchClient:
@@ -35,6 +38,27 @@ class YFinanceCompanySearchClient:
         return _normalize_quotes(search.quotes, limit)
 
 
+def rank_ticker_matches(query: str, results: list[CompanySearchResult]) -> list[CompanySearchResult]:
+    normalized_query = _canonical_ticker(query)
+    if not normalized_query:
+        return results
+
+    ranked_results = []
+    for result in results:
+        similarity = SequenceMatcher(None, normalized_query, _canonical_ticker(result.ticker)).ratio()
+        ranked_results.append(
+            CompanySearchResult(
+                ticker=result.ticker,
+                name=result.name,
+                exchange=result.exchange,
+                quote_type=result.quote_type,
+                similarity=similarity,
+            )
+        )
+
+    return sorted(ranked_results, key=lambda result: result.similarity, reverse=True)
+
+
 def _normalize_quotes(quotes: list[dict[str, Any]], limit: int) -> list[CompanySearchResult]:
     results = []
     for quote in quotes:
@@ -55,3 +79,7 @@ def _normalize_quotes(quotes: list[dict[str, Any]], limit: int) -> list[CompanyS
             break
 
     return results
+
+
+def _canonical_ticker(ticker: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", ticker.upper())

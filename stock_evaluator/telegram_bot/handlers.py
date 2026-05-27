@@ -8,8 +8,8 @@ from stock_evaluator.companies.services.company_lookup import (
     save_company_report_data,
     user_safe_lookup_error,
 )
-from stock_evaluator.companies.services.company_search import YFinanceCompanySearchClient
-from stock_evaluator.companies.services.market_data_client import MarketDataError
+from stock_evaluator.companies.services.company_search import YFinanceCompanySearchClient, rank_ticker_matches
+from stock_evaluator.companies.services.market_data_client import MarketDataError, TickerNotFoundError
 from stock_evaluator.lenses.quality_v1 import QualityLensV1
 from stock_evaluator.reports.llm_explainer import (
     INVESTOR_LABELS,
@@ -77,7 +77,13 @@ async def company(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         await sync_to_async(_remember_user)(update.effective_chat.id, _username(update))
         message, keyboard = await sync_to_async(_company_preview_response)(ticker)
-    except (ValueError, MarketDataError) as exc:
+    except ValueError as exc:
+        message = render_error_message(user_safe_lookup_error(exc))
+        keyboard = None
+    except TickerNotFoundError:
+        message = _ticker_not_found_message(ticker)
+        keyboard = None
+    except MarketDataError as exc:
         message = render_error_message(user_safe_lookup_error(exc))
         keyboard = None
 
@@ -90,7 +96,13 @@ async def watch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ticker = context.args[0] if context and context.args else ""
     try:
         message, keyboard = await sync_to_async(_watch_preview_response)(ticker)
-    except (ValueError, MarketDataError) as exc:
+    except ValueError as exc:
+        message = render_error_message(user_safe_lookup_error(exc))
+        keyboard = None
+    except TickerNotFoundError:
+        message = _ticker_not_found_message(ticker)
+        keyboard = None
+    except MarketDataError as exc:
         message = render_error_message(user_safe_lookup_error(exc))
         keyboard = None
 
@@ -182,8 +194,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.effective_message.reply_text(message, reply_markup=keyboard)
 
 
+@require_allowed_chat
+async def unsupported_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    del context
+    if update.effective_message:
+        await update.effective_message.reply_text("지원하지 않는 명령어입니다. /help로 사용 가능한 명령어를 확인하세요.")
+
+
 def _company_report_message(ticker: str, investor: str = "buffett") -> str:
-    result = CompanyLookupService().lookup(ticker)
+    try:
+        result = CompanyLookupService().lookup(ticker)
+    except TickerNotFoundError:
+        return _ticker_not_found_message(ticker)
     saved_company, snapshot = save_company_report_data(result)
     score_result = QualityLensV1().evaluate(
         snapshot,
@@ -239,6 +261,44 @@ def _ticker_search_message(query: str) -> str:
         [
             "",
             f"분석: /company {first_ticker}",
+            f"관심종목 추가: /watch {first_ticker}",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _ticker_not_found_message(ticker: str) -> str:
+    normalized_ticker = ticker.strip().upper()
+    try:
+        results = YFinanceCompanySearchClient().search(normalized_ticker, limit=5)
+    except (ValueError, MarketDataError):
+        return render_error_message(user_safe_lookup_error(TickerNotFoundError(f"Ticker not found: {normalized_ticker}")))
+
+    if not results:
+        return "\n".join(
+            [
+                f"{normalized_ticker} 티커를 찾지 못했습니다.",
+                "회사명이나 티커를 다시 확인해주세요. 예: /ticker apple",
+            ]
+        )
+
+    lines = [
+        f"{normalized_ticker} 티커를 찾지 못했습니다.",
+        "혹시 아래 후보 중 하나인가요?",
+    ]
+    ranked_results = rank_ticker_matches(normalized_ticker, results)
+    for index, result in enumerate(ranked_results, start=1):
+        description = f"{index}. {result.ticker} / {result.name}"
+        details = [value for value in [result.exchange, result.quote_type] if value]
+        if details:
+            description = f"{description} ({' / '.join(details)})"
+        lines.append(description)
+
+    first_ticker = ranked_results[0].ticker
+    lines.extend(
+        [
+            "",
+            f"분석하려면: /company {first_ticker}",
             f"관심종목 추가: /watch {first_ticker}",
         ]
     )
