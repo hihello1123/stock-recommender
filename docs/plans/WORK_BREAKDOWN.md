@@ -4,8 +4,8 @@
 
 기준 문서:
 
-- `IDEA.md`
-- `IMPLEMENTATION_PLAN.md`
+- `docs/plans/IDEA.md`
+- `docs/plans/IMPLEMENTATION_PLAN.md`
 
 목표는 `Global Equity Lens Bot`의 v1을 작게, 검증 가능하게 구현하는 것이다.
 
@@ -360,8 +360,8 @@ CODE PATHS                                      TEST TYPE
 
 ## What already exists
 
-- `IDEA.md`: 제품 방향, 금지 범위, 초기 명령어, 렌즈 아이디어가 있다.
-- `IMPLEMENTATION_PLAN.md`: v1 범위, 데이터 모델, 보안 경계, 테스트 방향이 있다.
+- `docs/plans/IDEA.md`: 제품 방향, 금지 범위, 초기 명령어, 렌즈 아이디어가 있다.
+- `docs/plans/IMPLEMENTATION_PLAN.md`: v1 범위, 데이터 모델, 보안 경계, 테스트 방향이 있다.
 - 실제 애플리케이션 코드는 아직 없다.
 
 ## 병렬화 전략
