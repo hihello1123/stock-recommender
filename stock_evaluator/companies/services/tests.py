@@ -7,6 +7,10 @@ from django.test import SimpleTestCase
 
 from stock_evaluator.companies.models import FinancialSnapshot
 from stock_evaluator.companies.services.company_lookup import CompanyLookupService
+from stock_evaluator.companies.services.company_search import (
+    YFinanceCompanySearchClient,
+    _normalize_quotes,
+)
 from stock_evaluator.companies.services.data_normalizer import normalize_market_data
 from stock_evaluator.companies.services.market_data_client import (
     MarketDataPayload,
@@ -50,6 +54,42 @@ class YFinanceMarketDataClientTests(SimpleTestCase):
 
             with self.assertRaises(TickerNotFoundError):
                 client.fetch("BAD")
+
+
+class CompanySearchTests(SimpleTestCase):
+    def test_normalize_quotes_returns_search_results(self):
+        results = _normalize_quotes(
+            [
+                {
+                    "symbol": "aapl",
+                    "longname": "Apple Inc.",
+                    "exchDisp": "NASDAQ",
+                    "quoteType": "EQUITY",
+                }
+            ],
+            limit=5,
+        )
+
+        self.assertEqual(results[0].ticker, "AAPL")
+        self.assertEqual(results[0].name, "Apple Inc.")
+        self.assertEqual(results[0].exchange, "NASDAQ")
+        self.assertEqual(results[0].quote_type, "EQUITY")
+
+    def test_search_rejects_empty_query(self):
+        client = YFinanceCompanySearchClient()
+
+        with self.assertRaises(ValueError):
+            client.search(" ")
+
+    def test_search_wraps_library_exception(self):
+        with patch(
+            "stock_evaluator.companies.services.company_search.yf.Search",
+            side_effect=RuntimeError("network down"),
+        ):
+            client = YFinanceCompanySearchClient()
+
+            with self.assertRaises(MarketDataError):
+                client.search("apple")
 
 
 class DataNormalizerTests(SimpleTestCase):

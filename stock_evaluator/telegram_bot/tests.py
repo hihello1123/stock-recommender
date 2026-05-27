@@ -1,7 +1,8 @@
 import asyncio
 from datetime import date, timedelta
 from decimal import Decimal
-from io import StringIO
+from io import BytesIO, StringIO
+from types import SimpleNamespace
 from unittest.mock import ANY, Mock, patch
 
 from django.core.management import call_command
@@ -15,18 +16,23 @@ from stock_evaluator.telegram_bot.auth import ACCESS_DENIED_MESSAGE, is_allowed_
 from stock_evaluator.telegram_bot.bot import TelegramBotConfigError, build_application
 from stock_evaluator.telegram_bot.handlers import (
     _company_report_message,
+    _natural_language_response,
     _remember_user,
+    _ticker_search_message,
     _unwatch_message,
     _watch_message,
     _watchlist_message,
     company,
     help_command,
     handle_confirmation,
+    handle_text,
     ping,
     start,
+    ticker,
 )
 from stock_evaluator.telegram_bot.messages import help_message, start_message
 from stock_evaluator.telegram_bot.models import AnalysisJob
+from stock_evaluator.telegram_bot.natural_language import NaturalLanguageRoute, route_natural_language_message
 from stock_evaluator.telegram_bot.services import (
     enqueue_analysis_job,
     mark_job_failed,
@@ -39,8 +45,9 @@ from stock_evaluator.users.models import TelegramUser
 
 
 class FakeMessage:
-    def __init__(self, message_id: int = 555):
+    def __init__(self, message_id: int = 555, text: str = ""):
         self.message_id = message_id
+        self.text = text
         self.replies: list[str] = []
         self.reply_markups = []
 
@@ -85,11 +92,30 @@ class FakeUpdate:
         self.effective_chat = FakeChat(chat_id, chat_type)
         self.effective_user = FakeUser()
         self.callback_query = callback_query
+        if callback_query is None:
+            self.effective_message = FakeMessage(text="")
 
 
 class FakeContext:
     def __init__(self, args=None):
         self.args = args or []
+
+
+class FakeHTTPResponse:
+    def __init__(self, payload: dict):
+        self.payload = payload
+
+    def __enter__(self):
+        return BytesIO(json_bytes(self.payload))
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+
+def json_bytes(payload: dict) -> bytes:
+    import json
+
+    return json.dumps(payload).encode("utf-8")
 
 
 class TelegramMessageTests(SimpleTestCase):
@@ -102,6 +128,7 @@ class TelegramMessageTests(SimpleTestCase):
         self.assertIn("/start", message)
         self.assertIn("/help", message)
         self.assertIn("/ping", message)
+        self.assertIn("/ticker", message)
         self.assertIn("/company", message)
         self.assertIn("/watch", message)
         self.assertIn("/unwatch", message)
@@ -114,6 +141,35 @@ class TelegramAuthTests(SimpleTestCase):
 
     def test_group_chat_fails(self):
         self.assertFalse(is_allowed_chat(FakeUpdate(chat_type=ChatType.GROUP)))
+
+
+class NaturalLanguageRouterTests(SimpleTestCase):
+    @override_settings(LOCAL_LLM_MODEL="")
+    def test_router_returns_unknown_when_model_is_disabled(self):
+        route = route_natural_language_message("애플 분석해줘")
+
+        self.assertEqual(route.intent, "unknown")
+
+    @override_settings(LOCAL_LLM_MODEL="mistral-small3.2:24b")
+    def test_router_parses_model_json_response(self):
+        response = {
+            "message": {
+                "content": (
+                    '{"intent":"analyze_company","query":"",'
+                    '"ticker":"aapl","investor":"buffett"}'
+                )
+            }
+        }
+
+        with patch(
+            "stock_evaluator.telegram_bot.natural_language.request.urlopen",
+            return_value=FakeHTTPResponse(response),
+        ):
+            route = route_natural_language_message("AAPL 버핏 관점으로 분석해줘")
+
+        self.assertEqual(route.intent, "analyze_company")
+        self.assertEqual(route.ticker, "AAPL")
+        self.assertEqual(route.investor, "buffett")
 
 
 class TelegramHandlerTests(TestCase):
@@ -173,11 +229,41 @@ class TelegramApplicationTests(SimpleTestCase):
 
         self.assertSetEqual(
             command_names,
-            {"start", "help", "ping", "company", "watch", "unwatch", "watchlist"},
+            {"start", "help", "ping", "ticker", "company", "watch", "unwatch", "watchlist"},
         )
 
 
 class CompanyCommandTests(TestCase):
+    def test_text_message_uses_natural_language_response(self):
+        update = FakeUpdate()
+        update.effective_message.text = "애플 분석해줘"
+
+        with patch("stock_evaluator.telegram_bot.handlers._remember_user"), patch(
+            "stock_evaluator.telegram_bot.handlers._natural_language_response",
+            return_value=("AAPL / Buffett 관점 분석을 준비하고 있습니다.", None),
+        ):
+            asyncio.run(handle_text(update, None))
+
+        self.assertEqual(update.effective_message.replies, ["AAPL / Buffett 관점 분석을 준비하고 있습니다."])
+
+    def test_ticker_replies_with_search_results(self):
+        with patch("stock_evaluator.telegram_bot.handlers._remember_user"), patch(
+            "stock_evaluator.telegram_bot.handlers._ticker_search_message",
+            return_value="'apple' 티커 검색 결과\n1. AAPL / Apple Inc.",
+        ):
+            update = FakeUpdate()
+            asyncio.run(ticker(update, FakeContext(args=["apple"])))
+
+        self.assertEqual(update.effective_message.replies, ["'apple' 티커 검색 결과\n1. AAPL / Apple Inc."])
+
+    def test_ticker_missing_query_replies_with_safe_error(self):
+        update = FakeUpdate()
+
+        with patch("stock_evaluator.telegram_bot.handlers._remember_user"):
+            asyncio.run(ticker(update, FakeContext(args=[])))
+
+        self.assertEqual(update.effective_message.replies, ["회사명을 입력해주세요. 예: /ticker apple"])
+
     def test_company_replies_with_confirmation_preview(self):
         with patch("stock_evaluator.telegram_bot.handlers._remember_user"), patch(
             "stock_evaluator.telegram_bot.handlers._company_preview_response",
@@ -332,6 +418,68 @@ class CompanyReportMessageTests(TestCase):
         self.assertEqual(Company.objects.count(), 1)
         self.assertEqual(FinancialSnapshot.objects.count(), 1)
         self.assertEqual(LensScore.objects.count(), 1)
+
+
+class TickerSearchMessageTests(TestCase):
+    def test_ticker_search_message_lists_results_and_next_commands(self):
+        result = SimpleNamespace(ticker="AAPL", name="Apple Inc.", exchange="NASDAQ", quote_type="EQUITY")
+        service = Mock()
+        service.search.return_value = [result]
+
+        with patch("stock_evaluator.telegram_bot.handlers.YFinanceCompanySearchClient", return_value=service):
+            message = _ticker_search_message("apple")
+
+        self.assertIn("1. AAPL / Apple Inc. (NASDAQ / EQUITY)", message)
+        self.assertIn("/company AAPL", message)
+        self.assertIn("/watch AAPL", message)
+
+    def test_ticker_search_message_handles_empty_results(self):
+        service = Mock()
+        service.search.return_value = []
+
+        with patch("stock_evaluator.telegram_bot.handlers.YFinanceCompanySearchClient", return_value=service):
+            message = _ticker_search_message("unknown")
+
+        self.assertEqual(message, "'unknown' 검색 결과가 없습니다.")
+
+
+class NaturalLanguageResponseTests(TestCase):
+    def test_analyze_company_with_ticker_enqueues_job(self):
+        with patch(
+            "stock_evaluator.telegram_bot.handlers.route_natural_language_message",
+            return_value=NaturalLanguageRoute(intent="analyze_company", ticker="AAPL", investor="munger"),
+        ):
+            message, keyboard = _natural_language_response(987654321, 555, "AAPL 멍거 관점으로 분석해줘")
+
+        self.assertIsNone(keyboard)
+        self.assertIn("AAPL / Munger 관점 분석을 준비하고 있습니다.", message)
+        job = AnalysisJob.objects.get(chat_id=987654321, ticker="AAPL", investor="munger")
+        self.assertEqual(job.ticker, "AAPL")
+        self.assertEqual(job.investor, "munger")
+
+    def test_analyze_company_with_name_falls_back_to_ticker_search(self):
+        with patch(
+            "stock_evaluator.telegram_bot.handlers.route_natural_language_message",
+            return_value=NaturalLanguageRoute(intent="analyze_company", query="애플"),
+        ), patch(
+            "stock_evaluator.telegram_bot.handlers._ticker_search_message",
+            return_value="'애플' 티커 검색 결과",
+        ):
+            message, keyboard = _natural_language_response(987654321, 555, "애플 분석해줘")
+
+        self.assertIsNone(keyboard)
+        self.assertEqual(message, "'애플' 티커 검색 결과")
+        self.assertFalse(AnalysisJob.objects.filter(chat_id=987654321, ticker="AAPL").exists())
+
+    def test_show_watchlist_returns_watchlist(self):
+        with patch(
+            "stock_evaluator.telegram_bot.handlers.route_natural_language_message",
+            return_value=NaturalLanguageRoute(intent="show_watchlist"),
+        ):
+            message, keyboard = _natural_language_response(123456789, 555, "관심종목 보여줘")
+
+        self.assertIsNone(keyboard)
+        self.assertEqual(message, "관심종목이 없습니다. /watch AAPL 형식으로 추가하세요.")
 
 
 class AnalysisWorkerTests(TestCase):

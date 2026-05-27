@@ -8,6 +8,7 @@ from stock_evaluator.companies.services.company_lookup import (
     save_company_report_data,
     user_safe_lookup_error,
 )
+from stock_evaluator.companies.services.company_search import YFinanceCompanySearchClient
 from stock_evaluator.companies.services.market_data_client import MarketDataError
 from stock_evaluator.lenses.quality_v1 import QualityLensV1
 from stock_evaluator.reports.llm_explainer import (
@@ -18,6 +19,7 @@ from stock_evaluator.reports.llm_explainer import (
 from stock_evaluator.reports.telegram_renderer import render_company_report, render_error_message
 from stock_evaluator.telegram_bot.auth import is_allowed_chat, require_allowed_chat
 from stock_evaluator.telegram_bot.messages import help_message, start_message
+from stock_evaluator.telegram_bot.natural_language import route_natural_language_message
 from stock_evaluator.telegram_bot.services import enqueue_analysis_job
 from stock_evaluator.users.services import (
     get_or_create_telegram_user,
@@ -49,6 +51,21 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await sync_to_async(_remember_user)(update.effective_chat.id, _username(update))
     if update.effective_message:
         await update.effective_message.reply_text("pong")
+
+
+@require_allowed_chat
+async def ticker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = " ".join(context.args) if context and context.args else ""
+    try:
+        await sync_to_async(_remember_user)(update.effective_chat.id, _username(update))
+        message = await sync_to_async(_ticker_search_message)(query)
+    except ValueError:
+        message = "회사명을 입력해주세요. 예: /ticker apple"
+    except MarketDataError:
+        message = render_error_message("티커 검색 중 오류가 발생했습니다.")
+
+    if update.effective_message:
+        await update.effective_message.reply_text(message)
 
 
 @require_allowed_chat
@@ -142,6 +159,26 @@ async def watchlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(message)
 
 
+@require_allowed_chat
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    del context
+    text = update.effective_message.text if update.effective_message else ""
+    try:
+        await sync_to_async(_remember_user)(update.effective_chat.id, _username(update))
+        message, keyboard = await sync_to_async(_natural_language_response)(
+            update.effective_chat.id,
+            update.effective_message.message_id if update.effective_message else None,
+            text,
+            _username(update),
+        )
+    except LocalLLMExplanationError:
+        message = "말씀하신 내용을 이해하지 못했습니다. 예: 애플 찾아줘, AAPL 분석해줘"
+        keyboard = None
+
+    if update.effective_message:
+        await update.effective_message.reply_text(message, reply_markup=keyboard)
+
+
 def _company_report_message(ticker: str, investor: str = "buffett") -> str:
     result = CompanyLookupService().lookup(ticker)
     saved_company, snapshot = save_company_report_data(result)
@@ -179,6 +216,70 @@ def _company_report_message(ticker: str, investor: str = "buffett") -> str:
             score_result,
             explanation="로컬 LLM 설명에 제한된 투자 조언 표현이 포함되어 생략했습니다.",
         )
+
+
+def _ticker_search_message(query: str) -> str:
+    results = YFinanceCompanySearchClient().search(query)
+    if not results:
+        return f"'{query.strip()}' 검색 결과가 없습니다."
+
+    lines = [f"'{query.strip()}' 티커 검색 결과"]
+    for index, result in enumerate(results, start=1):
+        description = f"{index}. {result.ticker} / {result.name}"
+        details = [value for value in [result.exchange, result.quote_type] if value]
+        if details:
+            description = f"{description} ({' / '.join(details)})"
+        lines.append(description)
+
+    first_ticker = results[0].ticker
+    lines.extend(
+        [
+            "",
+            f"분석: /company {first_ticker}",
+            f"관심종목 추가: /watch {first_ticker}",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _natural_language_response(
+    chat_id: int,
+    message_id: int | None,
+    text: str,
+    username: str = "",
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    route = route_natural_language_message(text)
+
+    if route.intent == "help":
+        return help_message(), None
+    if route.intent == "show_watchlist":
+        return _watchlist_message(chat_id), None
+    if route.intent == "search_ticker":
+        return _ticker_search_message(route.query or route.ticker or text), None
+    if route.intent == "remove_watchlist":
+        ticker = route.ticker or route.query
+        try:
+            return _unwatch_message(chat_id, ticker), None
+        except ValueError:
+            return "제거할 티커를 알려주세요. 예: AAPL 관심종목에서 빼줘", None
+    if route.intent == "add_watchlist":
+        if route.ticker:
+            return _watch_preview_response(route.ticker)
+        return _ticker_search_message(route.query or text), None
+    if route.intent == "analyze_company":
+        if route.ticker:
+            investor = route.investor or "buffett"
+            job, created, position = enqueue_analysis_job(
+                chat_id=chat_id,
+                message_id=message_id,
+                ticker=route.ticker,
+                investor=investor,
+            )
+            del job
+            return _loading_message(route.ticker, investor, position, created), None
+        return _ticker_search_message(route.query or text), None
+
+    return "말씀하신 내용을 이해하지 못했습니다. 예: 애플 찾아줘, AAPL 분석해줘", None
 
 
 def _company_preview_response(ticker: str) -> tuple[str, InlineKeyboardMarkup]:
