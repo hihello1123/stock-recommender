@@ -29,6 +29,9 @@ from stock_evaluator.users.services import (
 )
 
 
+UNKNOWN_TEXT_MESSAGE = "이 봇은 주식 조회, 분석, 관심종목 기능만 처리합니다. 예: 애플 찾아줘, AAPL 분석해줘"
+
+
 @require_allowed_chat
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     del context
@@ -172,7 +175,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             _username(update),
         )
     except LocalLLMExplanationError:
-        message = "말씀하신 내용을 이해하지 못했습니다. 예: 애플 찾아줘, AAPL 분석해줘"
+        message = UNKNOWN_TEXT_MESSAGE
         keyboard = None
 
     if update.effective_message:
@@ -279,7 +282,7 @@ def _natural_language_response(
             return _loading_message(route.ticker, investor, position, created), None
         return _ticker_search_message(route.query or text), None
 
-    return "말씀하신 내용을 이해하지 못했습니다. 예: 애플 찾아줘, AAPL 분석해줘", None
+    return UNKNOWN_TEXT_MESSAGE, None
 
 
 def _company_preview_response(ticker: str) -> tuple[str, InlineKeyboardMarkup]:

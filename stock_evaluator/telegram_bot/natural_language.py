@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass
 from urllib import request
 
@@ -17,6 +18,52 @@ INTENTS = {
     "unknown",
 }
 
+SENSITIVE_TERMS = [
+    "api key",
+    "apikey",
+    "password",
+    "token",
+    "비밀번호",
+    "암호",
+    "주민번호",
+    "전화번호",
+    "휴대폰",
+    "주소",
+    "계좌",
+    "카드번호",
+    "신용카드",
+    "토큰",
+    "인증번호",
+]
+
+STOCK_ROUTING_TERMS = [
+    "ticker",
+    "watch",
+    "stock",
+    "company",
+    "티커",
+    "주식",
+    "종목",
+    "회사",
+    "검색",
+    "찾아",
+    "분석",
+    "관심종목",
+    "관심",
+    "추가",
+    "제거",
+    "삭제",
+    "빼줘",
+    "보여",
+    "목록",
+    "버핏",
+    "그레이엄",
+    "린치",
+    "멍거",
+]
+
+TICKER_PATTERN = re.compile(r"\b[A-Z]{1,5}(?:[.-][A-Z]{1,3})?\b")
+
 
 @dataclass(frozen=True)
 class NaturalLanguageRoute:
@@ -29,6 +76,8 @@ class NaturalLanguageRoute:
 def route_natural_language_message(text: str) -> NaturalLanguageRoute:
     cleaned_text = text.strip()
     if not cleaned_text:
+        return NaturalLanguageRoute(intent="unknown")
+    if not should_route_to_llm(cleaned_text):
         return NaturalLanguageRoute(intent="unknown")
     if not settings.LOCAL_LLM_MODEL:
         return NaturalLanguageRoute(intent="unknown")
@@ -93,3 +142,18 @@ def route_natural_language_message(text: str) -> NaturalLanguageRoute:
         ticker=str(parsed.get("ticker") or "").strip().upper(),
         investor=investor,
     )
+
+
+def should_route_to_llm(text: str) -> bool:
+    normalized_text = text.strip()
+    if not normalized_text:
+        return False
+
+    lowered_text = normalized_text.lower()
+    if any(term in lowered_text for term in SENSITIVE_TERMS):
+        return False
+
+    if TICKER_PATTERN.search(normalized_text):
+        return True
+
+    return any(term in lowered_text for term in STOCK_ROUTING_TERMS)

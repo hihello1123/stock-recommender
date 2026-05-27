@@ -32,7 +32,11 @@ from stock_evaluator.telegram_bot.handlers import (
 )
 from stock_evaluator.telegram_bot.messages import help_message, start_message
 from stock_evaluator.telegram_bot.models import AnalysisJob
-from stock_evaluator.telegram_bot.natural_language import NaturalLanguageRoute, route_natural_language_message
+from stock_evaluator.telegram_bot.natural_language import (
+    NaturalLanguageRoute,
+    route_natural_language_message,
+    should_route_to_llm,
+)
 from stock_evaluator.telegram_bot.services import (
     enqueue_analysis_job,
     mark_job_failed,
@@ -144,6 +148,15 @@ class TelegramAuthTests(SimpleTestCase):
 
 
 class NaturalLanguageRouterTests(SimpleTestCase):
+    def test_filter_allows_stock_related_messages(self):
+        self.assertTrue(should_route_to_llm("애플 찾아줘"))
+        self.assertTrue(should_route_to_llm("AAPL 분석해줘"))
+        self.assertTrue(should_route_to_llm("관심종목 보여줘"))
+
+    def test_filter_blocks_sensitive_or_unrelated_messages(self):
+        self.assertFalse(should_route_to_llm("비밀번호는 1234야"))
+        self.assertFalse(should_route_to_llm("오늘 기분이 안 좋은데 위로해줘"))
+
     @override_settings(LOCAL_LLM_MODEL="")
     def test_router_returns_unknown_when_model_is_disabled(self):
         route = route_natural_language_message("애플 분석해줘")
@@ -170,6 +183,14 @@ class NaturalLanguageRouterTests(SimpleTestCase):
         self.assertEqual(route.intent, "analyze_company")
         self.assertEqual(route.ticker, "AAPL")
         self.assertEqual(route.investor, "buffett")
+
+    @override_settings(LOCAL_LLM_MODEL="mistral-small3.2:24b")
+    def test_router_does_not_call_model_for_blocked_message(self):
+        with patch("stock_evaluator.telegram_bot.natural_language.request.urlopen") as urlopen:
+            route = route_natural_language_message("오늘 기분이 안 좋은데 위로해줘")
+
+        self.assertEqual(route.intent, "unknown")
+        urlopen.assert_not_called()
 
 
 class TelegramHandlerTests(TestCase):
