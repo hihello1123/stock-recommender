@@ -173,3 +173,35 @@ class DailyWatchlistReport(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user.chat_id} {self.report_date} {self.status}"
+
+
+class DailyCompanyNewsAnalysis(models.Model):
+    class Status(models.TextChoices):
+        SUCCEEDED = "succeeded", "Succeeded"
+        FALLBACK = "fallback", "Fallback"
+        FAILED = "failed", "Failed"
+
+    company = models.ForeignKey(
+        "companies.Company",
+        on_delete=models.CASCADE,
+        related_name="daily_news_analyses",
+    )
+    report_date = models.DateField()
+    message = models.TextField(blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "report_date"],
+                name="unique_daily_company_news_analysis",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["report_date", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.company.ticker} {self.report_date} {self.status}"

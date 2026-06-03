@@ -37,9 +37,11 @@ from stock_evaluator.telegram_bot.messages import help_message, start_message
 from stock_evaluator.telegram_bot.daily_news import (
     build_daily_watchlist_report,
     fetch_watchlist_news,
+    get_or_create_company_news_analysis,
 )
 from stock_evaluator.telegram_bot.models import (
     AnalysisJob,
+    DailyCompanyNewsAnalysis,
     DailyWatchlistReport,
     NewsArticle,
     SecIngestJob,
@@ -188,7 +190,7 @@ class NaturalLanguageRouterTests(SimpleTestCase):
         }
 
         with patch(
-            "stock_evaluator.telegram_bot.natural_language.request.urlopen",
+            "stock_evaluator.reports.llm_client.request.urlopen",
             return_value=FakeHTTPResponse(response),
         ):
             route = route_natural_language_message("AAPL 버핏 관점으로 분석해줘")
@@ -199,7 +201,7 @@ class NaturalLanguageRouterTests(SimpleTestCase):
 
     @override_settings(LOCAL_LLM_MODEL="mistral-small3.2:24b")
     def test_router_does_not_call_model_for_blocked_message(self):
-        with patch("stock_evaluator.telegram_bot.natural_language.request.urlopen") as urlopen:
+        with patch("stock_evaluator.reports.llm_client.request.urlopen") as urlopen:
             route = route_natural_language_message("오늘 기분이 안 좋은데 위로해줘")
 
         self.assertEqual(route.intent, "unknown")
@@ -712,6 +714,35 @@ class DailyWatchlistNewsTests(TestCase):
         self.assertIn("AAPL / Apple Inc.", message)
         self.assertIn("Apple announces product update", message)
         self.assertIn("기사 목록만 보냅니다", message)
+        analysis = DailyCompanyNewsAnalysis.objects.get()
+        self.assertEqual(analysis.company, self.company)
+        self.assertEqual(analysis.status, DailyCompanyNewsAnalysis.Status.FALLBACK)
+
+    @override_settings(LOCAL_LLM_MODEL="mistral-small3.2:24b")
+    def test_company_news_analysis_is_cached_per_company_date(self):
+        response = {
+            "message": {
+                "content": "AAPL / Apple Inc.\n- 주요 뉴스: 테스트\n- 투자 관점 해석: 테스트\n- 확인할 리스크: 테스트"
+            }
+        }
+        NewsArticle.objects.create(
+            company=self.company,
+            source="google_news",
+            title="Apple announces product update",
+            url="https://example.com/apple",
+            published_at=timezone.make_aware(datetime(2026, 6, 3, 0, 0)),
+        )
+
+        with patch(
+            "stock_evaluator.reports.llm_client.request.urlopen",
+            return_value=FakeHTTPResponse(response),
+        ) as urlopen:
+            first = get_or_create_company_news_analysis(self.company, date(2026, 6, 3))
+            second = get_or_create_company_news_analysis(self.company, date(2026, 6, 3))
+
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(first.status, DailyCompanyNewsAnalysis.Status.SUCCEEDED)
+        self.assertEqual(urlopen.call_count, 1)
 
     @override_settings(TELEGRAM_BOT_TOKEN="123456:ABCDEF", LOCAL_LLM_MODEL="")
     def test_send_daily_report_records_sent_report(self):

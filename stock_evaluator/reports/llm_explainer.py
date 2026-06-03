@@ -1,9 +1,7 @@
-import json
-from urllib import request
-
 from django.conf import settings
 
 from stock_evaluator.lenses.base import LensScoreResult
+from stock_evaluator.reports.llm_client import LocalLLMClientError, chat_completion
 
 
 class LocalLLMExplanationError(RuntimeError):
@@ -47,18 +45,9 @@ def generate_investor_explanation(
         ],
         "stream": False,
     }
-    data = json.dumps(payload).encode("utf-8")
-    api_url = settings.LOCAL_LLM_BASE_URL.rstrip("/") + "/api/chat"
-    http_request = request.Request(
-        api_url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
     try:
-        with request.urlopen(http_request, timeout=settings.LOCAL_LLM_TIMEOUT_SECONDS) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except OSError as exc:
+        body = chat_completion(payload, timeout_seconds=settings.LOCAL_LLM_TIMEOUT_SECONDS)
+    except LocalLLMClientError as exc:
         raise LocalLLMExplanationError("로컬 LLM 호출에 실패했습니다.") from exc
 
     content = body.get("message", {}).get("content", "").strip()

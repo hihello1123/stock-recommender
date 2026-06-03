@@ -1,4 +1,3 @@
-import json
 from dataclasses import dataclass
 from datetime import datetime
 from email.utils import parsedate_to_datetime
@@ -11,8 +10,9 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 from stock_evaluator.companies.models import Company
+from stock_evaluator.reports.llm_client import LocalLLMClientError, chat_completion
 from stock_evaluator.reports.llm_explainer import LocalLLMExplanationError
-from stock_evaluator.telegram_bot.models import NewsArticle
+from stock_evaluator.telegram_bot.models import DailyCompanyNewsAnalysis, NewsArticle
 from stock_evaluator.users.models import TelegramUser, WatchlistItem
 
 
@@ -92,23 +92,44 @@ def build_daily_watchlist_report(user: TelegramUser, *, report_date=None) -> str
     if not items:
         return ""
 
-    grouped: list[tuple[Company, list[NewsArticle]]] = []
+    analyses: list[DailyCompanyNewsAnalysis] = []
     for item in items:
-        articles = list(
-            NewsArticle.objects.filter(
-                company=item.company,
-                fetched_at__date=report_date,
-            ).order_by("-published_at", "-fetched_at")[: ARTICLES_PER_SOURCE * 3]
-        )
-        grouped.append((item.company, articles))
+        analyses.append(get_or_create_company_news_analysis(item.company, report_date))
+
+    return _combined_user_report(analyses, report_date)
+
+
+def get_or_create_company_news_analysis(company: Company, report_date) -> DailyCompanyNewsAnalysis:
+    existing = DailyCompanyNewsAnalysis.objects.filter(company=company, report_date=report_date).first()
+    if existing:
+        return existing
+
+    articles = _company_articles_for_report(company, report_date)
+    try:
+        llm_summary = _generate_company_news_analysis(company, articles, report_date)
+    except LocalLLMExplanationError as exc:
+        llm_summary = None
+        error_message = str(exc) or exc.__class__.__name__
+    else:
+        error_message = ""
+
+    if llm_summary:
+        message = llm_summary
+        status = DailyCompanyNewsAnalysis.Status.SUCCEEDED
+    else:
+        message = _fallback_company_report(company, articles)
+        status = DailyCompanyNewsAnalysis.Status.FALLBACK
 
     try:
-        llm_summary = _generate_daily_news_analysis(grouped, report_date)
-    except LocalLLMExplanationError:
-        llm_summary = None
-    if llm_summary:
-        return llm_summary
-    return _fallback_report(grouped, report_date)
+        return DailyCompanyNewsAnalysis.objects.create(
+            company=company,
+            report_date=report_date,
+            message=message,
+            status=status,
+            error_message=error_message,
+        )
+    except IntegrityError:
+        return DailyCompanyNewsAnalysis.objects.get(company=company, report_date=report_date)
 
 
 def send_telegram_message(bot_token: str, chat_id: int, text: str) -> None:
@@ -213,11 +234,20 @@ def _investing_news_url() -> str:
     return "https://www.investing.com/rss/news_25.rss"
 
 
-def _generate_daily_news_analysis(grouped: list[tuple[Company, list[NewsArticle]]], report_date) -> str | None:
+def _company_articles_for_report(company: Company, report_date) -> list[NewsArticle]:
+    return list(
+        NewsArticle.objects.filter(
+            company=company,
+            fetched_at__date=report_date,
+        ).order_by("-published_at", "-fetched_at")[: ARTICLES_PER_SOURCE * 3]
+    )
+
+
+def _generate_company_news_analysis(company: Company, articles: list[NewsArticle], report_date) -> str | None:
     if not settings.LOCAL_LLM_MODEL:
         return None
 
-    prompt = _daily_news_prompt(grouped, report_date)
+    prompt = _company_news_prompt(company, articles, report_date)
     payload = {
         "model": settings.LOCAL_LLM_MODEL,
         "messages": [
@@ -232,33 +262,21 @@ def _generate_daily_news_analysis(grouped: list[tuple[Company, list[NewsArticle]
         ],
         "stream": False,
     }
-    data = json.dumps(payload).encode("utf-8")
-    api_url = settings.LOCAL_LLM_BASE_URL.rstrip("/") + "/api/chat"
-    http_request = request.Request(
-        api_url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
     try:
-        with request.urlopen(http_request, timeout=settings.DAILY_NEWS_LLM_TIMEOUT_SECONDS) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except OSError as exc:
+        body = chat_completion(payload, timeout_seconds=settings.DAILY_NEWS_LLM_TIMEOUT_SECONDS)
+    except LocalLLMClientError as exc:
         raise LocalLLMExplanationError("로컬 LLM 호출에 실패했습니다.") from exc
 
     content = body.get("message", {}).get("content", "").strip()
     return content or None
 
 
-def _daily_news_prompt(grouped: list[tuple[Company, list[NewsArticle]]], report_date) -> str:
+def _company_news_prompt(company: Company, articles: list[NewsArticle], report_date) -> str:
     lines = [
-        f"{report_date} 기준 워치리스트 뉴스 리포트를 한국어로 작성해줘.",
+        f"{report_date} 기준 {company.ticker} / {company.name} 뉴스 분석을 한국어로 작성해줘.",
         "형식은 아래 구조를 유지해.",
         "",
-        "[오늘의 워치리스트 뉴스]",
-        "전체 요약:",
-        "",
-        "TICKER / 회사명",
+        f"{company.ticker} / {company.name}",
         "- 주요 뉴스:",
         "- 투자 관점 해석:",
         "- 확인할 리스크:",
@@ -267,32 +285,38 @@ def _daily_news_prompt(grouped: list[tuple[Company, list[NewsArticle]]], report_
         "- 짧고 구체적으로 써.",
         "- 기사에 없는 내용은 추측하지 마.",
         "- 매수/매도 추천, 목표가, 주문 지시는 쓰지 마.",
-        "- 각 종목마다 기사 링크를 1~3개 포함해.",
+        "- 기사 링크를 1~3개 포함해.",
         "",
         "기사:",
     ]
-    for company, articles in grouped:
-        lines.append(f"\n{company.ticker} / {company.name}")
-        if not articles:
-            lines.append("- 새로 수집된 기사 없음")
-            continue
-        for article in articles:
-            lines.append(f"- [{article.source}] {article.title} ({article.url})")
-            if article.summary:
-                lines.append(f"  요약: {article.summary[:300]}")
+    if not articles:
+        lines.append("- 새로 수집된 기사 없음")
+    for article in articles:
+        lines.append(f"- [{article.source}] {article.title} ({article.url})")
+        if article.summary:
+            lines.append(f"  요약: {article.summary[:300]}")
     return "\n".join(lines)
 
 
-def _fallback_report(grouped: list[tuple[Company, list[NewsArticle]]], report_date) -> str:
+def _combined_user_report(analyses: list[DailyCompanyNewsAnalysis], report_date) -> str:
     lines = [f"[오늘의 워치리스트 뉴스] {report_date}", ""]
-    for company, articles in grouped:
-        lines.append(f"{company.ticker} / {company.name}")
-        if not articles:
-            lines.append("- 새로 수집된 기사 없음")
-        else:
-            for article in articles[: ARTICLES_PER_SOURCE * 3]:
-                lines.append(f"- [{article.source}] {article.title}")
-                lines.append(f"  {article.url}")
+    fallback_count = 0
+    for analysis in analyses:
+        lines.append(analysis.message)
         lines.append("")
-    lines.append("로컬 LLM 분석을 사용할 수 없어 기사 목록만 보냅니다.")
+        if analysis.status == DailyCompanyNewsAnalysis.Status.FALLBACK:
+            fallback_count += 1
+    if fallback_count:
+        lines.append(f"참고: {fallback_count}개 종목은 로컬 LLM 분석 대신 기사 목록만 보냅니다.")
+    return "\n".join(lines).strip()
+
+
+def _fallback_company_report(company: Company, articles: list[NewsArticle]) -> str:
+    lines = [f"{company.ticker} / {company.name}"]
+    if not articles:
+        lines.append("- 새로 수집된 기사 없음")
+    else:
+        for article in articles[: ARTICLES_PER_SOURCE * 3]:
+            lines.append(f"- [{article.source}] {article.title}")
+            lines.append(f"  {article.url}")
     return "\n".join(lines).strip()
