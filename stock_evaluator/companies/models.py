@@ -59,8 +59,8 @@ class CompanyAlias(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["ticker"]),
-            models.Index(fields=["source"]),
+            models.Index(fields=["ticker"], name="companies_c_ticker_f4d9d4_idx"),
+            models.Index(fields=["source"], name="companies_c_source_d970e1_idx"),
         ]
 
     def __str__(self) -> str:
