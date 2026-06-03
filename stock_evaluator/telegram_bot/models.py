@@ -134,8 +134,8 @@ class NewsArticle(models.Model):
             models.UniqueConstraint(fields=["url"], name="unique_news_article_url"),
         ]
         indexes = [
-            models.Index(fields=["company", "published_at"]),
-            models.Index(fields=["source", "fetched_at"]),
+            models.Index(fields=["company", "published_at"], name="telegram_bo_company_8c4a93_idx"),
+            models.Index(fields=["source", "fetched_at"], name="telegram_bo_source_b34f81_idx"),
         ]
 
     def __str__(self) -> str:
@@ -168,7 +168,7 @@ class DailyWatchlistReport(models.Model):
             ),
         ]
         indexes = [
-            models.Index(fields=["report_date", "status"]),
+            models.Index(fields=["report_date", "status"], name="telegram_bo_report__58542b_idx"),
         ]
 
     def __str__(self) -> str:
@@ -200,7 +200,7 @@ class DailyCompanyNewsAnalysis(models.Model):
             ),
         ]
         indexes = [
-            models.Index(fields=["report_date", "status"]),
+            models.Index(fields=["report_date", "status"], name="telegram_bo_report__436077_idx"),
         ]
 
     def __str__(self) -> str:
