@@ -3,10 +3,12 @@ set -euo pipefail
 
 BOT_LABEL="com.george.stockrecommender.bot"
 WORKER_LABEL="com.george.stockrecommender.worker"
+DAILY_NEWS_LABEL="com.george.stockrecommender.daily-news"
 SCRIPT_DIR=${0:A:h}
 REPO_ROOT=${SCRIPT_DIR:h}
 BOT_PLIST_PATH="$HOME/Library/LaunchAgents/${BOT_LABEL}.plist"
 WORKER_PLIST_PATH="$HOME/Library/LaunchAgents/${WORKER_LABEL}.plist"
+DAILY_NEWS_PLIST_PATH="$HOME/Library/LaunchAgents/${DAILY_NEWS_LABEL}.plist"
 LOG_DIR="$REPO_ROOT/logs"
 
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -24,7 +26,13 @@ uv sync
 uv run python manage.py migrate
 launchctl kickstart -k "gui/$(id -u)/${BOT_LABEL}"
 launchctl kickstart -k "gui/$(id -u)/${WORKER_LABEL}"
+if [ -f "$DAILY_NEWS_PLIST_PATH" ]; then
+  launchctl kickstart -k "gui/$(id -u)/${DAILY_NEWS_LABEL}" || true
+fi
 
 echo "Restarted ${BOT_LABEL}"
 echo "Restarted ${WORKER_LABEL}"
-echo "Logs: tail -f ${LOG_DIR}/bot.out.log ${LOG_DIR}/bot.err.log ${LOG_DIR}/worker.out.log ${LOG_DIR}/worker.err.log"
+if [ -f "$DAILY_NEWS_PLIST_PATH" ]; then
+  echo "Restarted ${DAILY_NEWS_LABEL}"
+fi
+echo "Logs: tail -f ${LOG_DIR}/bot.out.log ${LOG_DIR}/bot.err.log ${LOG_DIR}/worker.out.log ${LOG_DIR}/worker.err.log ${LOG_DIR}/daily_news.out.log ${LOG_DIR}/daily_news.err.log"

@@ -114,3 +114,62 @@ class SecIngestSubscriber(models.Model):
 
     def __str__(self) -> str:
         return f"{self.chat_id} waiting for {self.job.ticker}"
+
+
+class NewsArticle(models.Model):
+    company = models.ForeignKey(
+        "companies.Company",
+        on_delete=models.CASCADE,
+        related_name="news_articles",
+    )
+    source = models.CharField(max_length=64)
+    title = models.CharField(max_length=500)
+    url = models.URLField(max_length=1000)
+    summary = models.TextField(blank=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+    fetched_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["url"], name="unique_news_article_url"),
+        ]
+        indexes = [
+            models.Index(fields=["company", "published_at"]),
+            models.Index(fields=["source", "fetched_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.company.ticker} {self.source} {self.title}"
+
+
+class DailyWatchlistReport(models.Model):
+    class Status(models.TextChoices):
+        SENT = "sent", "Sent"
+        SKIPPED = "skipped", "Skipped"
+        FAILED = "failed", "Failed"
+
+    user = models.ForeignKey(
+        "users.TelegramUser",
+        on_delete=models.CASCADE,
+        related_name="daily_watchlist_reports",
+    )
+    report_date = models.DateField()
+    message = models.TextField(blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices)
+    error_message = models.TextField(blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "report_date"],
+                name="unique_daily_watchlist_report_user_date",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["report_date", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user.chat_id} {self.report_date} {self.status}"

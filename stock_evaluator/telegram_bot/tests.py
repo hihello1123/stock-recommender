@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO, StringIO
 from types import SimpleNamespace
@@ -34,7 +34,17 @@ from stock_evaluator.telegram_bot.handlers import (
     unsupported_command,
 )
 from stock_evaluator.telegram_bot.messages import help_message, start_message
-from stock_evaluator.telegram_bot.models import AnalysisJob, SecIngestJob, SecIngestSubscriber
+from stock_evaluator.telegram_bot.daily_news import (
+    build_daily_watchlist_report,
+    fetch_watchlist_news,
+)
+from stock_evaluator.telegram_bot.models import (
+    AnalysisJob,
+    DailyWatchlistReport,
+    NewsArticle,
+    SecIngestJob,
+    SecIngestSubscriber,
+)
 from stock_evaluator.telegram_bot.natural_language import (
     NaturalLanguageRoute,
     route_natural_language_message,
@@ -48,7 +58,7 @@ from stock_evaluator.telegram_bot.services import (
     queue_position,
     reset_stale_running_jobs,
 )
-from stock_evaluator.users.models import TelegramUser
+from stock_evaluator.users.models import TelegramUser, WatchlistItem
 
 
 class FakeMessage:
@@ -659,3 +669,79 @@ class WatchlistMessageTests(TestCase):
 
         self.assertEqual(message, "AAPL 관심종목에서 제거했습니다.")
         self.assertEqual(_watchlist_message(123456789), "관심종목이 없습니다. /watch AAPL 형식으로 추가하세요.")
+
+
+class DailyWatchlistNewsTests(TestCase):
+    def setUp(self):
+        self.user = TelegramUser.objects.create(chat_id=123456789, username="george", is_allowed=True)
+        self.company = Company.objects.create(ticker="AAPL", name="Apple Inc.", exchange="NASDAQ", sector="Technology")
+        WatchlistItem.objects.create(user=self.user, company=self.company)
+
+    def test_fetch_watchlist_news_saves_unique_articles(self):
+        rss = (
+            b"<?xml version='1.0'?><rss><channel>"
+            b"<item><title>Apple stock rises</title><link>https://example.com/a</link>"
+            b"<description>Apple news</description><pubDate>Wed, 03 Jun 2026 00:00:00 GMT</pubDate></item>"
+            b"<item><title>Apple stock rises</title><link>https://example.com/a</link>"
+            b"<description>duplicate</description></item>"
+            b"</channel></rss>"
+        )
+
+        with patch("stock_evaluator.telegram_bot.daily_news.request.urlopen", return_value=BytesIOResponse(rss)):
+            saved_count, errors = fetch_watchlist_news(per_source=5)
+
+        self.assertEqual(saved_count, 1)
+        self.assertEqual(errors, [])
+        article = NewsArticle.objects.get()
+        self.assertEqual(article.company, self.company)
+        self.assertEqual(article.title, "Apple stock rises")
+
+    @override_settings(LOCAL_LLM_MODEL="")
+    def test_build_daily_watchlist_report_falls_back_to_article_list(self):
+        NewsArticle.objects.create(
+            company=self.company,
+            source="google_news",
+            title="Apple announces product update",
+            url="https://example.com/apple",
+            published_at=timezone.make_aware(datetime(2026, 6, 3, 0, 0)),
+        )
+
+        message = build_daily_watchlist_report(self.user, report_date=date(2026, 6, 3))
+
+        self.assertIn("[오늘의 워치리스트 뉴스] 2026-06-03", message)
+        self.assertIn("AAPL / Apple Inc.", message)
+        self.assertIn("Apple announces product update", message)
+        self.assertIn("기사 목록만 보냅니다", message)
+
+    @override_settings(TELEGRAM_BOT_TOKEN="123456:ABCDEF", LOCAL_LLM_MODEL="")
+    def test_send_daily_report_records_sent_report(self):
+        NewsArticle.objects.create(
+            company=self.company,
+            source="google_news",
+            title="Apple announces product update",
+            url="https://example.com/apple",
+            published_at=timezone.make_aware(datetime(2026, 6, 3, 0, 0)),
+        )
+
+        with patch("stock_evaluator.telegram_bot.management.commands.send_daily_watchlist_report.send_telegram_message") as send:
+            call_command("send_daily_watchlist_report", "--date", "2026-06-03", stdout=StringIO())
+
+        send.assert_called_once()
+        report = DailyWatchlistReport.objects.get()
+        self.assertEqual(report.status, DailyWatchlistReport.Status.SENT)
+
+        with patch("stock_evaluator.telegram_bot.management.commands.send_daily_watchlist_report.send_telegram_message") as send:
+            call_command("send_daily_watchlist_report", "--date", "2026-06-03", stdout=StringIO())
+
+        send.assert_not_called()
+
+
+class BytesIOResponse:
+    def __init__(self, body: bytes):
+        self.body = body
+
+    def __enter__(self):
+        return BytesIO(self.body)
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False

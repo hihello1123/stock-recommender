@@ -32,7 +32,7 @@
 - 선택한 투자자 관점의 로컬 LLM 해석
 - 추가 확인사항
 
-관심종목 명령어는 나중에 일일 뉴스 리포트와 주간 리포트의 대상 목록으로 사용합니다.
+관심종목 명령어는 매일 오전 9시 뉴스 리포트의 대상 목록으로 사용합니다.
 
 ## 준비물
 
@@ -62,6 +62,8 @@ TELEGRAM_BOT_TOKEN=replace-me
 LOCAL_LLM_MODEL=
 LOCAL_LLM_BASE_URL=http://127.0.0.1:11434
 LOCAL_LLM_TIMEOUT_SECONDS=60
+DAILY_NEWS_RSS_TIMEOUT_SECONDS=10
+DAILY_NEWS_LLM_TIMEOUT_SECONDS=20
 ```
 
 봇 토큰은 서버에서만 사용합니다. 텔레그램 사용자에게 공유하지 않습니다.
@@ -88,9 +90,17 @@ uv run python manage.py run_telegram_bot
 uv run python manage.py run_analysis_worker
 ```
 
+워치리스트 일일 뉴스 수집과 발송을 수동 실행:
+
+```bash
+uv run python manage.py run_daily_watchlist_news
+```
+
 `run_telegram_bot`은 텔레그램 명령과 버튼을 받는 프로세스입니다.
 `run_analysis_worker`는 오래 걸리는 로컬 LLM 분석 작업을 하나씩 처리하는 프로세스입니다.
 로컬에서 직접 실행할 때는 두 명령을 각각 다른 터미널에서 실행하세요.
+일일 뉴스 리포트는 Google News, Yahoo Finance, Investing.com의 공개 RSS를 사용하므로 별도 구독 신청이나 API 키가 필요 없습니다.
+`LOCAL_LLM_MODEL`이 설정되어 있으면 뉴스 분석을 함께 보내고, 비어 있거나 LLM 호출이 실패하면 기사 목록만 보냅니다.
 
 ## macOS 백그라운드 실행
 
@@ -107,17 +117,19 @@ uv run python manage.py migrate
 ./scripts/install_launch_agent.sh
 ```
 
-이 스크립트는 현재 저장소 경로를 기준으로 두 개의 서비스를 생성하고 시작합니다.
+이 스크립트는 현재 저장소 경로를 기준으로 세 개의 서비스를 생성하고 시작합니다.
 
 - `~/Library/LaunchAgents/com.george.stockrecommender.bot.plist`
 - `~/Library/LaunchAgents/com.george.stockrecommender.worker.plist`
+- `~/Library/LaunchAgents/com.george.stockrecommender.daily-news.plist`
 
 ### 2. 상태 확인
 
 ```bash
 launchctl print gui/$(id -u)/com.george.stockrecommender.bot
 launchctl print gui/$(id -u)/com.george.stockrecommender.worker
-tail -f logs/bot.out.log logs/bot.err.log logs/worker.out.log logs/worker.err.log
+launchctl print gui/$(id -u)/com.george.stockrecommender.daily-news
+tail -f logs/bot.out.log logs/bot.err.log logs/worker.out.log logs/worker.err.log logs/daily_news.out.log logs/daily_news.err.log
 ```
 
 ### 3. 코드 변경 후 재시작
