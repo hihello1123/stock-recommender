@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from email.utils import parsedate_to_datetime
-from html import unescape
+from html import escape, unescape
 from urllib import parse, request
 from xml.etree import ElementTree
 
@@ -114,7 +114,7 @@ def get_or_create_company_news_analysis(company: Company, report_date) -> DailyC
         error_message = ""
 
     if llm_summary:
-        message = llm_summary
+        message = escape(llm_summary)
         status = DailyCompanyNewsAnalysis.Status.SUCCEEDED
     else:
         message = _fallback_company_report(company, articles)
@@ -139,6 +139,7 @@ def send_telegram_message(bot_token: str, chat_id: int, text: str) -> None:
             {
                 "chat_id": chat_id,
                 "text": text[start : start + REPORT_MESSAGE_CHUNK_SIZE],
+                "parse_mode": "HTML",
                 "disable_web_page_preview": "true",
             }
         ).encode()
@@ -299,7 +300,7 @@ def _company_news_prompt(company: Company, articles: list[NewsArticle], report_d
 
 
 def _combined_user_report(analyses: list[DailyCompanyNewsAnalysis], report_date) -> str:
-    lines = [f"[오늘의 워치리스트 뉴스] {report_date}", ""]
+    lines = [f"[오늘의 워치리스트 뉴스] {escape(str(report_date))}", ""]
     fallback_count = 0
     for analysis in analyses:
         lines.append(analysis.message)
@@ -312,11 +313,13 @@ def _combined_user_report(analyses: list[DailyCompanyNewsAnalysis], report_date)
 
 
 def _fallback_company_report(company: Company, articles: list[NewsArticle]) -> str:
-    lines = [f"{company.ticker} / {company.name}"]
+    lines = [f"{escape(company.ticker)} / {escape(company.name)}"]
     if not articles:
         lines.append("- 새로 수집된 기사 없음")
     else:
         for article in articles[: ARTICLES_PER_SOURCE * 3]:
-            lines.append(f"- [{article.source}] {article.title}")
-            lines.append(f"  {article.url}")
+            source = escape(article.source)
+            title = escape(article.title)
+            url = escape(article.url, quote=True)
+            lines.append(f'- [{source}] <a href="{url}">{title}</a>')
     return "\n".join(lines).strip()

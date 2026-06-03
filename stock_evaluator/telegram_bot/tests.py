@@ -712,7 +712,7 @@ class DailyWatchlistNewsTests(TestCase):
 
         self.assertIn("[오늘의 워치리스트 뉴스] 2026-06-03", message)
         self.assertIn("AAPL / Apple Inc.", message)
-        self.assertIn("Apple announces product update", message)
+        self.assertIn('<a href="https://example.com/apple">Apple announces product update</a>', message)
         self.assertIn("기사 목록만 보냅니다", message)
         analysis = DailyCompanyNewsAnalysis.objects.get()
         self.assertEqual(analysis.company, self.company)
@@ -742,6 +742,7 @@ class DailyWatchlistNewsTests(TestCase):
 
         self.assertEqual(first.id, second.id)
         self.assertEqual(first.status, DailyCompanyNewsAnalysis.Status.SUCCEEDED)
+        self.assertIn("AAPL / Apple Inc.", first.message)
         self.assertEqual(urlopen.call_count, 1)
 
     @override_settings(TELEGRAM_BOT_TOKEN="123456:ABCDEF", LOCAL_LLM_MODEL="")
