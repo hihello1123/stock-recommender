@@ -2,6 +2,10 @@ from stock_evaluator.lenses.base import LensScoreResult
 
 
 BANNED_ADVICE_WORDS = ["매수 추천", "사라", "팔아라", "매도 추천"]
+LOCAL_LLM_LIMITATION_NOTICE = (
+    "로컬 LLM 해석은 제한된 입력과 모델 성능에 따른 자동 요약입니다. "
+    "사실 오류나 누락이 있을 수 있으므로 원문 데이터와 공시를 직접 확인해야 합니다."
+)
 
 
 def render_company_report(
@@ -53,6 +57,9 @@ def render_company_report(
             "",
             "선택한 전문가 해석",
             explanation or "로컬 LLM 설명이 비활성화되어 있습니다.",
+            "",
+            "로컬 모델 한계",
+            LOCAL_LLM_LIMITATION_NOTICE,
             "",
             "주의",
             "이 결과는 자동 매수 신호가 아닙니다.",

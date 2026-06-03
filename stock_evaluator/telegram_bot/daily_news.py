@@ -18,6 +18,10 @@ from stock_evaluator.users.models import TelegramUser, WatchlistItem
 
 ARTICLES_PER_SOURCE = 5
 REPORT_MESSAGE_CHUNK_SIZE = 3900
+LOCAL_LLM_LIMITATION_NOTICE = (
+    "로컬 LLM 해석은 제한된 RSS 입력과 모델 성능에 따른 자동 요약입니다. "
+    "기사 원문, 공시, 가격 데이터를 직접 확인해야 합니다."
+)
 
 
 class NewsFetchError(RuntimeError):
@@ -309,6 +313,8 @@ def _combined_user_report(analyses: list[DailyCompanyNewsAnalysis], report_date)
             fallback_count += 1
     if fallback_count:
         lines.append(f"참고: {fallback_count}개 종목은 로컬 LLM 분석 대신 기사 목록만 보냅니다.")
+    if any(analysis.status == DailyCompanyNewsAnalysis.Status.SUCCEEDED for analysis in analyses):
+        lines.extend(["", "로컬 모델 한계", LOCAL_LLM_LIMITATION_NOTICE])
     return "\n".join(lines).strip()
 
 
