@@ -520,6 +520,12 @@ class TickerSearchMessageTests(TestCase):
 
         self.assertEqual(message, "'unknown' 검색 결과가 없습니다.")
 
+    def test_ticker_search_message_shows_korean_alias_result(self):
+        message = _ticker_search_message("구글")
+
+        self.assertIn("1. GOOGL / Alphabet Inc. (ALIAS) - '구글' 별칭 / 관련 티커: GOOG", message)
+        self.assertIn("/company GOOGL", message)
+
     def test_ticker_not_found_message_lists_similar_candidates(self):
         service = Mock()
         service.search.return_value = [

@@ -254,6 +254,12 @@ def _ticker_search_message(query: str) -> str:
         details = [value for value in [result.exchange, result.quote_type] if value]
         if details:
             description = f"{description} ({' / '.join(details)})"
+        matched_alias = getattr(result, "matched_alias", "")
+        alternative_tickers = getattr(result, "alternative_tickers", ())
+        if matched_alias:
+            description = f"{description} - '{matched_alias}' 별칭"
+        if alternative_tickers:
+            description = f"{description} / 관련 티커: {', '.join(alternative_tickers)}"
         lines.append(description)
 
     first_ticker = results[0].ticker

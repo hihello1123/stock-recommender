@@ -43,6 +43,30 @@ class Company(models.Model):
         return f"{self.ticker} ({self.exchange})"
 
 
+class CompanyAlias(models.Model):
+    class Source(models.TextChoices):
+        SEED = "seed", "Seed"
+        MANUAL = "manual", "Manual"
+        GENERATED = "generated", "Generated"
+
+    alias = models.CharField(max_length=128)
+    normalized_alias = models.CharField(max_length=128, unique=True)
+    ticker = models.CharField(max_length=16)
+    company_name = models.CharField(max_length=255, blank=True)
+    alternative_tickers = models.JSONField(default=list, blank=True)
+    source = models.CharField(max_length=16, choices=Source.choices, default=Source.SEED)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["ticker"]),
+            models.Index(fields=["source"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.alias} -> {self.ticker}"
+
+
 class FinancialSnapshot(models.Model):
     class PeriodType(models.TextChoices):
         ANNUAL = "annual", "Annual"

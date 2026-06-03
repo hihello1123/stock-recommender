@@ -3,7 +3,7 @@ from decimal import Decimal
 import math
 from unittest.mock import Mock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
 from stock_evaluator.companies.models import FinancialSnapshot
 from stock_evaluator.companies.services.company_lookup import CompanyLookupService
@@ -61,7 +61,7 @@ class YFinanceMarketDataClientTests(SimpleTestCase):
                 client.fetch("BAD")
 
 
-class CompanySearchTests(SimpleTestCase):
+class CompanySearchTests(TestCase):
     def test_normalize_quotes_returns_search_results(self):
         results = _normalize_quotes(
             [
@@ -85,6 +85,18 @@ class CompanySearchTests(SimpleTestCase):
 
         with self.assertRaises(ValueError):
             client.search(" ")
+
+    def test_search_resolves_korean_alias_before_yfinance(self):
+        client = YFinanceCompanySearchClient()
+
+        with patch("stock_evaluator.companies.services.company_search.yf.Search") as search:
+            results = client.search("구글")
+
+        search.assert_not_called()
+        self.assertEqual(results[0].ticker, "GOOGL")
+        self.assertEqual(results[0].name, "Alphabet Inc.")
+        self.assertEqual(results[0].matched_alias, "구글")
+        self.assertEqual(results[0].alternative_tickers, ("GOOG",))
 
     def test_search_wraps_library_exception(self):
         with patch(

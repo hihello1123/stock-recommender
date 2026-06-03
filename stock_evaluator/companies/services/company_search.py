@@ -5,6 +5,8 @@ from typing import Any
 
 import yfinance as yf
 
+from stock_evaluator.companies.aliases import normalize_alias
+from stock_evaluator.companies.models import CompanyAlias
 from stock_evaluator.companies.services.market_data_client import MarketDataError
 
 
@@ -15,6 +17,8 @@ class CompanySearchResult:
     exchange: str = ""
     quote_type: str = ""
     similarity: float = 0
+    matched_alias: str = ""
+    alternative_tickers: tuple[str, ...] = ()
 
 
 class YFinanceCompanySearchClient:
@@ -22,6 +26,10 @@ class YFinanceCompanySearchClient:
         normalized_query = query.strip()
         if not normalized_query:
             raise ValueError("Search query is required.")
+
+        alias_result = _search_alias(normalized_query)
+        if alias_result:
+            return [alias_result]
 
         try:
             search = yf.Search(
@@ -36,6 +44,19 @@ class YFinanceCompanySearchClient:
             raise MarketDataError("Failed to search companies.") from exc
 
         return _normalize_quotes(search.quotes, limit)
+
+
+def _search_alias(query: str) -> CompanySearchResult | None:
+    alias = CompanyAlias.objects.filter(normalized_alias=normalize_alias(query)).first()
+    if alias is None:
+        return None
+    return CompanySearchResult(
+        ticker=alias.ticker,
+        name=alias.company_name or alias.ticker,
+        quote_type="ALIAS",
+        matched_alias=alias.alias,
+        alternative_tickers=tuple(alias.alternative_tickers or ()),
+    )
 
 
 def rank_ticker_matches(query: str, results: list[CompanySearchResult]) -> list[CompanySearchResult]:
