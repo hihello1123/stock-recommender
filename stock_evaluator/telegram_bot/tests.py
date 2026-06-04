@@ -706,12 +706,15 @@ class DailyWatchlistNewsTests(TestCase):
 
     @override_settings(LOCAL_LLM_MODEL="")
     def test_build_daily_watchlist_report_falls_back_to_article_list(self):
-        NewsArticle.objects.create(
+        article = NewsArticle.objects.create(
             company=self.company,
             source="google_news",
             title="Apple announces product update",
             url="https://example.com/apple",
             published_at=timezone.make_aware(datetime(2026, 6, 3, 0, 0)),
+        )
+        NewsArticle.objects.filter(id=article.id).update(
+            fetched_at=timezone.make_aware(datetime(2026, 6, 3, 1, 0))
         )
 
         message = build_daily_watchlist_report(self.user, report_date=date(2026, 6, 3))
@@ -719,7 +722,7 @@ class DailyWatchlistNewsTests(TestCase):
         self.assertIn("[오늘의 워치리스트 뉴스] 2026-06-03", message)
         self.assertIn("AAPL / Apple Inc.", message)
         self.assertIn('<a href="https://example.com/apple">Apple announces product update</a>', message)
-        self.assertIn("기사 목록만 보냅니다", message)
+        self.assertIn("로컬 LLM 분석에 실패해 기사 목록으로 대체했습니다", message)
         analysis = DailyCompanyNewsAnalysis.objects.get()
         self.assertEqual(analysis.company, self.company)
         self.assertEqual(analysis.status, DailyCompanyNewsAnalysis.Status.FALLBACK)

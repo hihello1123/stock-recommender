@@ -312,7 +312,7 @@ def _combined_user_report(analyses: list[DailyCompanyNewsAnalysis], report_date)
         if analysis.status == DailyCompanyNewsAnalysis.Status.FALLBACK:
             fallback_count += 1
     if fallback_count:
-        lines.append(f"참고: {fallback_count}개 종목은 로컬 LLM 분석 대신 기사 목록만 보냅니다.")
+        lines.append(f"참고: {fallback_count}개 종목은 로컬 LLM 분석에 실패해 기사 목록으로 대체했습니다.")
     if any(analysis.status == DailyCompanyNewsAnalysis.Status.SUCCEEDED for analysis in analyses):
         lines.extend(["", "로컬 모델 한계", LOCAL_LLM_LIMITATION_NOTICE])
     return "\n".join(lines).strip()
