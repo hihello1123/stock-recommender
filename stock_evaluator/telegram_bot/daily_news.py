@@ -13,7 +13,8 @@ from stock_evaluator.companies.models import Company
 from stock_evaluator.reports.llm_client import LocalLLMClientError, chat_completion
 from stock_evaluator.reports.llm_explainer import LocalLLMExplanationError
 from stock_evaluator.telegram_bot.models import DailyCompanyNewsAnalysis, NewsArticle
-from stock_evaluator.users.models import TelegramUser, WatchlistItem
+from stock_evaluator.users.models import TelegramUser
+from stock_evaluator.users.services import effective_watchlist_items_for_user
 
 
 ARTICLES_PER_SOURCE = 5
@@ -40,11 +41,7 @@ class FeedArticle:
 def fetch_watchlist_news(*, per_source: int = ARTICLES_PER_SOURCE) -> tuple[int, list[str]]:
     saved_count = 0
     errors: list[str] = []
-    companies = (
-        Company.objects.filter(watchlist_items__isnull=False)
-        .distinct()
-        .order_by("ticker")
-    )
+    companies = _effective_watchlist_companies()
     for company in companies:
         articles, company_errors = fetch_company_news(company, per_source=per_source)
         errors.extend(company_errors)
@@ -88,11 +85,7 @@ def fetch_company_news(company: Company, *, per_source: int = ARTICLES_PER_SOURC
 
 def build_daily_watchlist_report(user: TelegramUser, *, report_date=None) -> str:
     report_date = report_date or timezone.localdate()
-    items = list(
-        WatchlistItem.objects.filter(user=user)
-        .select_related("company")
-        .order_by("company__ticker")
-    )
+    items = effective_watchlist_items_for_user(user)
     if not items:
         return ""
 
@@ -101,6 +94,16 @@ def build_daily_watchlist_report(user: TelegramUser, *, report_date=None) -> str
         analyses.append(get_or_create_company_news_analysis(item.company, report_date))
 
     return _combined_user_report(analyses, report_date)
+
+
+def _effective_watchlist_companies() -> list[Company]:
+    companies_by_key = {}
+    users = TelegramUser.objects.filter(watchlist_items__isnull=False).distinct().order_by("chat_id")
+    for user in users:
+        for item in effective_watchlist_items_for_user(user):
+            key = (item.company.ticker, item.company.exchange)
+            companies_by_key[key] = item.company
+    return sorted(companies_by_key.values(), key=lambda company: company.ticker)
 
 
 def get_or_create_company_news_analysis(company: Company, report_date) -> DailyCompanyNewsAnalysis:

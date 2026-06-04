@@ -714,6 +714,36 @@ class DailyWatchlistNewsTests(TestCase):
         self.assertEqual(article.company, self.company)
         self.assertEqual(article.title, "Apple stock rises")
 
+    @override_settings(WATCHLIST_MAX_ITEMS=10, WATCHLIST_LIMIT_EXEMPT_CHAT_IDS=[])
+    def test_fetch_watchlist_news_uses_only_first_ten_items_for_limited_user(self):
+        for index in range(1, 11):
+            company = Company.objects.create(
+                ticker=f"T{index}",
+                name=f"Company {index}",
+                exchange="NASDAQ",
+                sector="Technology",
+            )
+            WatchlistItem.objects.create(user=self.user, company=company)
+
+        responses = [
+            BytesIOResponse(
+                (
+                    "<?xml version='1.0'?><rss><channel>"
+                    f"<item><title>Stock news {index}</title><link>https://example.com/news-{index}</link></item>"
+                    "</channel></rss>"
+                ).encode()
+            )
+            for index in range(30)
+        ]
+
+        with patch("stock_evaluator.telegram_bot.daily_news.request.urlopen", side_effect=responses):
+            fetch_watchlist_news(per_source=1)
+
+        tickers = set(NewsArticle.objects.values_list("company__ticker", flat=True))
+        self.assertIn("AAPL", tickers)
+        self.assertIn("T9", tickers)
+        self.assertNotIn("T10", tickers)
+
     @override_settings(LOCAL_LLM_MODEL="")
     def test_build_daily_watchlist_report_falls_back_to_article_list(self):
         article = NewsArticle.objects.create(

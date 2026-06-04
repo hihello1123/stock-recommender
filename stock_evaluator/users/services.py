@@ -50,9 +50,19 @@ def unwatch_ticker(chat_id: int, ticker: str) -> bool:
     return deleted_count > 0
 
 
-def list_watchlist(chat_id: int) -> list[WatchlistItem]:
-    return list(
-        WatchlistItem.objects.filter(user__chat_id=chat_id)
+def effective_watchlist_items_for_user(user: TelegramUser) -> list[WatchlistItem]:
+    queryset = (
+        WatchlistItem.objects.filter(user=user)
         .select_related("company")
-        .order_by("company__ticker")
+        .order_by("created_at", "id")
     )
+    if user.chat_id in settings.WATCHLIST_LIMIT_EXEMPT_CHAT_IDS:
+        return list(queryset)
+    return list(queryset[: settings.WATCHLIST_MAX_ITEMS])
+
+
+def list_watchlist(chat_id: int) -> list[WatchlistItem]:
+    user = TelegramUser.objects.filter(chat_id=chat_id).first()
+    if user is None:
+        return []
+    return sorted(effective_watchlist_items_for_user(user), key=lambda item: item.company.ticker)
