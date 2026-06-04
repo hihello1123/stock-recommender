@@ -1,4 +1,5 @@
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
@@ -21,6 +22,7 @@ from stock_evaluator.telegram_bot.auth import is_allowed_chat, require_allowed_c
 from stock_evaluator.telegram_bot.messages import help_message, start_message
 from stock_evaluator.telegram_bot.natural_language import route_natural_language_message
 from stock_evaluator.telegram_bot.services import enqueue_analysis_job
+from stock_evaluator.users.models import TelegramUser
 from stock_evaluator.users.services import (
     get_or_create_telegram_user,
     list_watchlist,
@@ -450,6 +452,14 @@ def _watchlist_message(chat_id: int) -> str:
 
     lines = ["관심종목"]
     lines.extend(f"- {item.company.ticker} / {item.company.name}" for item in items)
+    user = TelegramUser.objects.filter(chat_id=chat_id).first()
+    if (
+        user is not None
+        and user.chat_id not in settings.WATCHLIST_LIMIT_EXEMPT_CHAT_IDS
+        and user.watchlist_items.count() > settings.WATCHLIST_MAX_ITEMS
+    ):
+        lines.append("")
+        lines.append(f"참고: 최대 {settings.WATCHLIST_MAX_ITEMS}개까지만 표시됩니다.")
     return "\n".join(lines)
 
 

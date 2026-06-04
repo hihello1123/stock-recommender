@@ -679,6 +679,19 @@ class WatchlistMessageTests(TestCase):
         self.assertEqual(message, "AAPL 관심종목에서 제거했습니다.")
         self.assertEqual(_watchlist_message(123456789), "관심종목이 없습니다. /watch AAPL 형식으로 추가하세요.")
 
+    @override_settings(WATCHLIST_MAX_ITEMS=10, WATCHLIST_LIMIT_EXEMPT_CHAT_IDS=[])
+    def test_watchlist_message_shows_limit_notice_for_over_limit_user(self):
+        user = TelegramUser.objects.create(chat_id=123456789, username="george", is_allowed=True)
+        for index in range(12):
+            company = Company.objects.create(ticker=f"T{index}", name=f"Company {index}", exchange="NASDAQ")
+            WatchlistItem.objects.create(user=user, company=company)
+
+        message = _watchlist_message(123456789)
+
+        self.assertIn("참고: 최대 10개까지만 표시됩니다.", message)
+        self.assertIn("T0 / Company 0", message)
+        self.assertNotIn("T11 / Company 11", message)
+
     def test_watch_message_returns_limit_error(self):
         with patch(
             "stock_evaluator.telegram_bot.handlers.watch_ticker",
