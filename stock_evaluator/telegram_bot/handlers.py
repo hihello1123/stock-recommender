@@ -25,6 +25,7 @@ from stock_evaluator.users.services import (
     get_or_create_telegram_user,
     list_watchlist,
     unwatch_ticker,
+    WatchlistLimitError,
     watch_ticker,
 )
 
@@ -373,7 +374,10 @@ def _company_preview_response(ticker: str) -> tuple[str, InlineKeyboardMarkup]:
 
 
 def _watch_message(chat_id: int, ticker: str, username: str = "") -> str:
-    item, created = watch_ticker(chat_id, ticker, username)
+    try:
+        item, created = watch_ticker(chat_id, ticker, username)
+    except WatchlistLimitError:
+        return "관심종목은 최대 10개까지 추가할 수 있습니다. 기존 종목을 제거한 뒤 다시 시도해주세요."
     if created:
         return f"{item.company.ticker} 관심종목에 추가했습니다."
     return f"{item.company.ticker} 이미 관심종목에 있습니다."

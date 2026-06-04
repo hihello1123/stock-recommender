@@ -1,9 +1,15 @@
+from django.conf import settings
+
 from stock_evaluator.companies.services.company_lookup import (
     CompanyLookupService,
     save_company_report_data,
 )
 from stock_evaluator.companies.services.market_data_client import normalize_ticker
 from stock_evaluator.users.models import TelegramUser, WatchlistItem
+
+
+class WatchlistLimitError(RuntimeError):
+    pass
 
 
 def get_or_create_telegram_user(
@@ -22,6 +28,14 @@ def get_or_create_telegram_user(
 def watch_ticker(chat_id: int, ticker: str, username: str = "") -> tuple[WatchlistItem, bool]:
     normalized_ticker = normalize_ticker(ticker)
     user = get_or_create_telegram_user(chat_id, username)
+    existing = WatchlistItem.objects.filter(user=user, company__ticker=normalized_ticker).first()
+    if existing:
+        return existing, False
+    if (
+        user.chat_id not in settings.WATCHLIST_LIMIT_EXEMPT_CHAT_IDS
+        and WatchlistItem.objects.filter(user=user).count() >= settings.WATCHLIST_MAX_ITEMS
+    ):
+        raise WatchlistLimitError(f"Watchlist limit reached: {settings.WATCHLIST_MAX_ITEMS}")
     result = CompanyLookupService().lookup(normalized_ticker)
     company, _snapshot = save_company_report_data(result)
     return WatchlistItem.objects.get_or_create(user=user, company=company)

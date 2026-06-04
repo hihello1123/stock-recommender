@@ -35,6 +35,19 @@ def _load_env_file(path: Path) -> None:
 
 _load_env_file(BASE_DIR / ".env")
 
+
+def _parse_int_list(value: str) -> list[int]:
+    values = []
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            values.append(int(item))
+        except ValueError:
+            continue
+    return values
+
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "development-only-secret-key")
 DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
 ALLOWED_HOSTS = [
@@ -105,3 +118,5 @@ LOCAL_LLM_BASE_URL = os.environ.get("LOCAL_LLM_BASE_URL", "http://127.0.0.1:1143
 LOCAL_LLM_TIMEOUT_SECONDS = int(os.environ.get("LOCAL_LLM_TIMEOUT_SECONDS", "300"))
 DAILY_NEWS_RSS_TIMEOUT_SECONDS = int(os.environ.get("DAILY_NEWS_RSS_TIMEOUT_SECONDS", "10"))
 DAILY_NEWS_LLM_TIMEOUT_SECONDS = int(os.environ.get("DAILY_NEWS_LLM_TIMEOUT_SECONDS", "300"))
+WATCHLIST_MAX_ITEMS = int(os.environ.get("WATCHLIST_MAX_ITEMS", "10"))
+WATCHLIST_LIMIT_EXEMPT_CHAT_IDS = _parse_int_list(os.environ.get("WATCHLIST_LIMIT_EXEMPT_CHAT_IDS", ""))

@@ -61,6 +61,7 @@ from stock_evaluator.telegram_bot.services import (
     reset_stale_running_jobs,
 )
 from stock_evaluator.users.models import TelegramUser, WatchlistItem
+from stock_evaluator.users.services import WatchlistLimitError
 
 
 class FakeMessage:
@@ -677,6 +678,15 @@ class WatchlistMessageTests(TestCase):
 
         self.assertEqual(message, "AAPL 관심종목에서 제거했습니다.")
         self.assertEqual(_watchlist_message(123456789), "관심종목이 없습니다. /watch AAPL 형식으로 추가하세요.")
+
+    def test_watch_message_returns_limit_error(self):
+        with patch(
+            "stock_evaluator.telegram_bot.handlers.watch_ticker",
+            side_effect=WatchlistLimitError("limit"),
+        ):
+            message = _watch_message(123456789, "AAPL", "george")
+
+        self.assertEqual(message, "관심종목은 최대 10개까지 추가할 수 있습니다. 기존 종목을 제거한 뒤 다시 시도해주세요.")
 
 
 class DailyWatchlistNewsTests(TestCase):
